@@ -1,10 +1,10 @@
-epochs: 10
+epochs: 20
 patience: 150
 output_dir: './outputs/esm2rinalmo_650M/finetune_from_pretrained/PRA310'
 gpus:
   - 0
 
-ckpt: /root/autodl-tmp/CoPRA/outputs/esm2rinalmo_650M/pretune_struct/esm2rinalmo_650M_cformer_PRI30k_fixed_interface_dist_random_mask0.15_tokenpooling/log_fold_0/checkpoint/epoch=9-val_loss=2.013.ckpt
+ckpt: outputs/esm2rinalmo_650M/pretune_struct/epoch=49-val_loss=0.506.ckpt
 
 run_name: 'esm2rinalmo_finetune_from_pretrain'
 wandb: False

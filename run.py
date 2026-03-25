@@ -95,18 +95,36 @@ class LightningRunner(object):
             print("Successfully initialized, start trainer...")
             strategy=DDPStrategy(find_unused_parameters=True)
             # strategy.lightning_restore_optimizer = False
+            # Build callbacks list: early stopping + best-checkpoint-by-val_loss
+            callbacks = [
+                EarlyStopping(monitor="val_loss", mode="min", patience=self.run_args.patience, strict=False),
+                # Keep the best checkpoint by validation loss
+                ModelCheckpoint(dirpath=(log_dir / 'checkpoint'), filename='{epoch}-{val_loss:.3f}',
+                                monitor="val_loss", mode="min", save_last=False, save_top_k=1),
+            ]
+
+            # Optionally add a periodic checkpoint callback (e.g., every N epochs)
+            periodic_n = getattr(self.run_args, 'save_every_n_epochs', None)
+            try:
+                # EasyDict may store as int or string — coerce
+                if periodic_n is not None:
+                    periodic_n = int(periodic_n)
+            except Exception:
+                periodic_n = None
+
+            if periodic_n and periodic_n > 0:
+                callbacks.append(
+                    ModelCheckpoint(dirpath=(log_dir / 'checkpoint'), filename='epoch={epoch}',
+                                    every_n_epochs=periodic_n, save_top_k=-1, save_last=False)
+                )
+
             trainer = pl.Trainer(
                 devices=gpus,
                 # max_steps=self.run_args.iters,
                 max_epochs=self.run_args.epochs,
                 logger=logger,
                 num_sanity_val_steps=0,
-                callbacks=[
-                    EarlyStopping(monitor="val_loss", mode="min", patience=self.run_args.patience, strict=False),
-                    # Only keep the best checkpoint per fold (do not keep intermediate or `last` checkpoints)
-                    ModelCheckpoint(dirpath=(log_dir / 'checkpoint'), filename='{epoch}-{val_loss:.3f}',
-                                    monitor="val_loss", mode="min", save_last=False, save_top_k=1),
-                ],
+                callbacks=callbacks,
                 # gradient_clip_val=self.model_args.train.max_grad_norm if self.model_args.train.max_grad_norm is not None else None,
                 # gradient_clip_algorithm='norm' if self.model_args.train.max_grad_norm is not None else None,
                 strategy=strategy,
