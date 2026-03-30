@@ -13,3 +13,4 @@ causal_pretrain:
 	atomic_weight: 1.0
 	global_weight: 1.0
 	local_weight: 1.0
+save_every_n_epochs: 10

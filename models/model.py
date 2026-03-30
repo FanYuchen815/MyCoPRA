@@ -595,6 +595,30 @@ class ESM2RiNALMo(nn.Module):
                 
                 return output_forward, output_inv
 
+        elif stage in ('finetune', 'multitask'):
+            # Default prediction head for finetune (legacy single-task)
+            try:
+                out = self.pred_head(complex_embedding).squeeze(1)
+            except Exception:
+                out = self.pred_head(complex_embedding)
+
+            # If multitask decoder exists and user requested multitask, try to use it
+            if stage == 'multitask' and hasattr(self, 'decoder') and self.decoder is not None:
+                try:
+                    preds = {}
+                    preds['delta_g'] = self.decoder(complex_embedding, task='delta_g')
+                    preds['delta_delta_g'] = self.decoder(complex_embedding, task='delta_delta_g')
+                    try:
+                        preds['binding_site'] = self.decoder(complex_embedding, task='binding_site', seq_embedding=seq_embedding)
+                    except Exception:
+                        preds['binding_site'] = None
+                    return preds
+                except Exception:
+                    # fallback to single output
+                    return out
+
+            return out
+
         else:
             raise NotImplementedError
             

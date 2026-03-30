@@ -4,7 +4,7 @@ output_dir: './outputs/esm2rinalmo_650M/finetune_from_pretrained/PRA310'
 gpus:
   - 0
 
-ckpt: outputs/esm2rinalmo_650M/pretune_struct/epoch=49-val_loss=0.506.ckpt
+ckpt: outputs/copra_pretrain_causal/log_fold_0/checkpoint/epoch=0-val_loss=3.118.ckpt
 
 run_name: 'esm2rinalmo_finetune_from_pretrain'
 wandb: False

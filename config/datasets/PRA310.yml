@@ -1,6 +1,6 @@
 dataset_type: 'structure_dataset'
 df_path: './datasets/PRA310/splits/PRA310.csv'
-batch_size: 16
+batch_size: 1
 data_root: './datasets/PRA310/PDBs'
 num_workers: 2
 col_prot_chain: 'Protein chains'

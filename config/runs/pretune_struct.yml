@@ -8,11 +8,8 @@ wandb: false
 ckpt: null
 ckpts: []
 precision: 16
-batch_size: 1
+batch_size: 4
 accumulate_grad_batches: 16
-limit_train_batches: 1
-limit_val_batches: 1
-epochs: 1
 model_config: config/models/copra.yml
 data_config: config/datasets/PRI30k.yml
 
@@ -23,3 +20,4 @@ causal_pretrain:
   atomic_weight: 1.0
   global_weight: 1.0
   local_weight: 1.0
+save_every_n_epochs: 10
