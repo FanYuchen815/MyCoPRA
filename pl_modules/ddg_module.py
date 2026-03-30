@@ -6,9 +6,15 @@ import torch.nn.functional as F
 import numpy as np
 import pandas as pd
 import pytorch_lightning as pl
-from models import ModelRegister
+from models.register import ModelRegister
 from utils.metrics import ScalarMetricAccumulator, cal_pearson, cal_spearman, cal_rmse, cal_mae, get_loss, per_complex_corr
 def get_model(model_args:dict=None):
+    # Ensure model registration modules are imported so ModelRegister is populated
+    try:
+        import importlib
+        importlib.import_module('models.model')
+    except Exception:
+        pass
     register = ModelRegister()
     model_args_ori = {}
     model_args_ori.update(model_args)

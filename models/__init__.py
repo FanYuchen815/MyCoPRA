@@ -1,5 +1,6 @@
-from .esm_rinalmo_seq import *
-from .model import *
-from .components.ssdn import *
-from .register import *
-from .ipa import *
+"""Lightweight models package initializer.
+
+Avoid importing heavy top-level modules here to prevent import-time side-effects
+when tests only need `models.components`.
+"""
+from .components import *

@@ -13,7 +13,7 @@ from models.components.valina_transformer import Transformer
 from models.model import cat_pad, segment_cat_pad
 R = ModelRegister()
 from models.components.interaction_adapter import InteractionAdapter
-from models.components.ssdn import SSDN
+from models.components.ssdn import SSDN, SSDNEnhanced
 
 def load_esm(esm_type):
     import os
@@ -133,6 +133,14 @@ class ESM2RiNALMo(nn.Module):
             ssdn_cross_heads = fusion_cfg.get('cross_heads', ssdn_heads)
             ssdn_dropout = fusion_cfg.get('dropout', 0.0)
             self.transformer = SSDN(self.complex_dim, ssdn_pair_dim, num_layers=ssdn_layers, num_heads=ssdn_heads, cross_heads=ssdn_cross_heads, dropout=ssdn_dropout)
+        elif fusion_cfg is not None and fusion_cfg.get('type', '').lower() == 'ssdn_enhanced' or (fusion_cfg is not None and fusion_cfg.get('use_enhanced', False)):
+            ssdn_layers = fusion_cfg.get('layers', 8)
+            ssdn_heads = fusion_cfg.get('heads', 4)
+            ssdn_pair_dim = fusion_cfg.get('pair_dim', kwargs.get('coformer', {}).get('pair_dim', 40))
+            cross_heads_start = fusion_cfg.get('cross_heads_start', ssdn_heads)
+            ssdn_dropout = fusion_cfg.get('dropout', 0.1)
+            embed_dim_cfg = kwargs.get('coformer', {}).get('embed_dim', pair_dim if 'pair_dim' in locals() else 320)
+            self.transformer = SSDNEnhanced(embed_dim_cfg, ssdn_pair_dim, num_layers=ssdn_layers, num_heads=ssdn_heads, cross_heads_start=cross_heads_start, dropout=ssdn_dropout)
         else:
             self.transformer = Transformer(**kwargs['transformer'])
         self.complex_dim = kwargs['transformer']['embed_dim']

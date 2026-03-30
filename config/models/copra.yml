@@ -24,12 +24,13 @@ model:
     transition_factor: 4
     use_flash_attn: false
   fusion:
-    type: ssdn
-    layers: 2
-    heads: 4
+    type: ssdn_enhanced
+    use_enhanced: true
+    num_layers: 2
+    num_heads: 4
     pair_dim: 40
-    cross_heads: 4
-    dropout: 0.0
+    cross_heads_start: 4
+    dropout: 0.1
   interaction_adapter:
     enable: false
     embed_dim: 320

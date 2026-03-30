@@ -122,6 +122,9 @@ class LightningRunner(object):
                 devices=gpus,
                 # max_steps=self.run_args.iters,
                 max_epochs=self.run_args.epochs,
+                # optional limits for quick debugging / single-step runs
+                limit_train_batches=getattr(self.run_args, 'limit_train_batches', 1.0),
+                limit_val_batches=getattr(self.run_args, 'limit_val_batches', 1.0),
                 logger=logger,
                 num_sanity_val_steps=0,
                 callbacks=callbacks,

@@ -1,0 +1,15 @@
+run_name: copra_pretrain_causal
+dataset: PRI30k
+batch_size: 1
+epochs: 50
+learning_rate: 3e-5
+precision: 16
+gradient_accumulation: 16
+model_config: config/models/copra_ssdn_enhanced.yml
+output_dir: checkpoints/pretrain_causal
+causal_enabled: true
+causal_pretrain:
+	alignment_weight: 0.1
+	atomic_weight: 1.0
+	global_weight: 1.0
+	local_weight: 1.0

@@ -6,9 +6,16 @@ import torch.nn.functional as F
 import numpy as np
 import pandas as pd
 import pytorch_lightning as pl
-from models import ModelRegister
+from models.register import ModelRegister
 from utils.metrics import ScalarMetricAccumulator, cal_pearson, cal_spearman, cal_rmse, cal_mae, get_loss
+import torch.nn.functional as F
 def get_model(model_args:dict=None):
+    # Ensure model registration modules are imported so ModelRegister is populated
+    try:
+        import importlib
+        importlib.import_module('models.model')
+    except Exception:
+        pass
     register = ModelRegister()
     model_args_ori = {}
     model_args_ori.update(model_args)
@@ -115,13 +122,39 @@ class ModelModule(pl.LightningModule):
         #         print("Found Unused Parameters")
 
     def training_step(self, batch, batch_idx):
+        # support multi-task training if model provides decoder and batch contains multi-task labels
+        if hasattr(self.model, 'decoder') and self.model.decoder is not None and 'delta_g' in batch:
+            preds = self.model(batch, self.data_args.strategy, stage='multitask')
+            # preds: dict with keys 'delta_g', 'delta_delta_g', 'binding_site'
+            loss_weights = getattr(self.model_args.train, 'task_weights', None)
+            if loss_weights is None:
+                loss_weights = {'delta_g': 1.0, 'delta_delta_g': 0.5, 'binding_site': 0.3}
+
+            loss_delta_g = F.mse_loss(preds['delta_g'].view(-1, 1), batch['delta_g'].float())
+            loss_delta_delta_g = F.mse_loss(preds['delta_delta_g'].view(-1, 1), batch['delta_delta_g'].float())
+            loss_site = 0.0
+            if preds.get('binding_site', None) is not None and 'binding_site_labels' in batch:
+                # preds['binding_site']: [B, L, 2] -> permute to [B, 2, L] for cross_entropy
+                logits = preds['binding_site'].permute(0, 2, 1)
+                loss_site = F.cross_entropy(logits, batch['binding_site_labels'].long())
+
+            loss = (loss_weights['delta_g'] * loss_delta_g +
+                    loss_weights['delta_delta_g'] * loss_delta_delta_g +
+                    loss_weights['binding_site'] * loss_site)
+
+            self.train_loss = loss.detach()
+            self.log("train_loss", float(self.train_loss), batch_size=self.batch_size, on_step=True, on_epoch=False, prog_bar=True, sync_dist=True)
+            self.log("train_delta_g", float(loss_delta_g.detach()), on_step=True, on_epoch=False)
+            self.log("train_delta_delta_g", float(loss_delta_delta_g.detach()), on_step=True, on_epoch=False)
+            if loss_site != 0.0:
+                self.log("train_binding_site", float(loss_site.detach()), on_step=True, on_epoch=False)
+
+            return loss
+
+        # legacy single-task behavior
         y = batch['labels']
         pred = self.model(batch, self.data_args.strategy)
-        # print(y.shape, pred.shape)
         loss = get_loss(self.l_type, pred, y, reduction='mean')
-        # if torch.isnan(loss).any():
-        #     print("Found nan in loss!", input)
-        #     exit()
         self.train_loss = loss.detach()
         self.log("train_loss", float(self.train_loss), batch_size=self.batch_size, on_step=True, on_epoch=False, prog_bar=True, sync_dist=True)
         return loss
@@ -131,6 +164,22 @@ class ModelModule(pl.LightningModule):
         self.results = []
 
     def validation_step(self, batch, batch_idx):
+        # support multi-task validation
+        if hasattr(self.model, 'decoder') and self.model.decoder is not None and 'delta_g' in batch:
+            preds = self.model(batch, self.data_args.strategy, stage='multitask')
+            pred_delta_g = preds['delta_g'].view(-1).detach().cpu().numpy()
+            y_true = batch['delta_g'].view(-1).detach().cpu().numpy()
+            val_loss = np.mean((pred_delta_g - y_true) ** 2)
+            self.scalar_accum.add(name='val_loss', value=val_loss, batchsize=self.batch_size, mode='mean')
+            self.log("val_loss_step", val_loss, batch_size=self.batch_size, on_step=False, on_epoch=True, prog_bar=False, sync_dist=True)
+
+            for y_t, y_p in zip(y_true, pred_delta_g):
+                result = {'y_true': float(y_t), 'y_pred': float(y_p)}
+                self.results.append(result)
+
+            return val_loss
+
+        # legacy single-task behavior
         y = batch['labels']
         pred = self.model(batch, self.data_args.strategy)
         val_loss = get_loss(self.l_type, pred, y, reduction='mean')

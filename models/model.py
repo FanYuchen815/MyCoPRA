@@ -5,7 +5,7 @@ from rinalmo.config import model_config
 from rinalmo.model.model import RiNALMo
 from models.encoders.pair import ResiduePairEncoder
 from models.register import ModelRegister
-from models.components.ssdn import SSDN
+from models.components.ssdn import SSDN, SSDNEnhanced, TaskAdaptiveDecoder
 import torch.nn.functional as F
 from models.lora_tune import LoRAESM, LoRARiNALMo, ESMConfig, RiNALMoConfig
 import random
@@ -166,6 +166,21 @@ class ESM2RiNALMo(nn.Module):
         super(ESM2RiNALMo, self).__init__()
         self.esm, esm_feat_size = load_esm(esm_type)
         self.rinalmo, rinalmo_feat_size = load_rinalmo(rinalmo_weights, rinalmo_type)
+        # Optionally freeze pretrained language/model encoders to save memory and compute
+        # If LoRA tuning is enabled, we avoid freezing so LoRA adapters can be trained.
+        if fix_lms and not lora_tune:
+            for p in self.esm.parameters():
+                p.requires_grad = False
+            for p in self.rinalmo.parameters():
+                p.requires_grad = False
+            try:
+                self.esm.eval()
+            except Exception:
+                pass
+            try:
+                self.rinalmo.eval()
+            except Exception:
+                pass
         self.pair_encoder = ResiduePairEncoder(pair_dim, max_num_atoms=4)  # N, CA, C, O,
         # Fusion: allow replacing CoFormer with SSDN via config 'fusion'
         fusion_cfg = kwargs.get('fusion', None)
@@ -175,11 +190,19 @@ class ESM2RiNALMo(nn.Module):
             ssdn_pair_dim = fusion_cfg.get('pair_dim', pair_dim)
             ssdn_cross_heads = fusion_cfg.get('cross_heads', ssdn_heads)
             ssdn_dropout = fusion_cfg.get('dropout', 0.0)
-            # use configured embed dim from coformer section as complex_dim before it's assigned to self
-            embed_dim_cfg = kwargs.get('coformer', {}).get('embed_dim', None)
-            if embed_dim_cfg is None:
-                embed_dim_cfg = pair_dim
+            # use configured embed dim from coformer section as complex_dim
+            embed_dim_cfg = kwargs.get('coformer', {}).get('embed_dim', pair_dim)
             self.c_former = SSDN(embed_dim_cfg, ssdn_pair_dim, num_layers=ssdn_layers, num_heads=ssdn_heads, cross_heads=ssdn_cross_heads, dropout=ssdn_dropout)
+        elif fusion_cfg is not None and fusion_cfg.get('type', '').lower() == 'ssdn_enhanced' or (fusion_cfg is not None and fusion_cfg.get('use_enhanced', False)):
+            # build SSDNEnhanced using coformer embed dim
+            ssdn_layers = fusion_cfg.get('layers', 8)
+            ssdn_heads = fusion_cfg.get('heads', 4)
+            ssdn_pair_dim = fusion_cfg.get('pair_dim', pair_dim)
+            cross_heads_start = fusion_cfg.get('cross_heads_start', 4)
+            ssdn_dropout = fusion_cfg.get('dropout', 0.1)
+            # embed dim from coformer config
+            embed_dim_cfg = kwargs.get('coformer', {}).get('embed_dim', pair_dim)
+            self.c_former = SSDNEnhanced(embed_dim_cfg, ssdn_pair_dim, num_layers=ssdn_layers, num_heads=ssdn_heads, cross_heads_start=cross_heads_start, dropout=ssdn_dropout)
         else:
             # Build SSDN from original CoFormer-style config to preserve behavior
             coformer_cfg = kwargs.get('coformer', {})
@@ -271,6 +294,15 @@ class ESM2RiNALMo(nn.Module):
             self._interaction_enabled = True
         else:
             self._interaction_enabled = False
+
+        # Optional TaskAdaptiveDecoder
+        decoder_cfg = kwargs.get('decoder', None)
+        if decoder_cfg is not None:
+            task_emb_dim = decoder_cfg.get('task_emb_dim', 64)
+            try:
+                self.decoder = TaskAdaptiveDecoder(self.complex_dim, task_emb_dim=task_emb_dim)
+            except Exception:
+                self.decoder = None
     
     def _forward(self, input, strategy='separate', need_mask=False):
         prot_input = input['prot']
@@ -367,11 +399,33 @@ class ESM2RiNALMo(nn.Module):
         
     def forward(self, input, strategy='separate', stage='finetune', need_mask=False):
         out_embedding, z, key_padding_mask = self._forward(input, strategy, need_mask=need_mask)
-        if stage == 'finetune':
-                
-            output, z, attn = self.c_former(out_embedding, z, key_padding_mask=key_padding_mask, need_attn_weights=False)
+        # run fusion/backbone
+        cformer_out = self.c_former(out_embedding, z, key_padding_mask=key_padding_mask, need_attn_weights=False)
 
-            # optional interaction on pooled prot/rna tokens when using token pooling
+        # normalize outputs for compatibility with legacy SSDN
+        # cformer_out may be (output_tokens, pair, attn) OR (fused, seq_emb, struct_emb)
+        output_tokens, pair_out, attn = None, None, None
+        fused_embedding = None
+        seq_embedding = None
+        try:
+            a0, a1, a2 = cformer_out
+            # detect fused (2D) vs token outputs (3D)
+            if a0.dim() == 2:
+                # SSDNEnhanced: a0=fused [B,E], a1=seq_emb [B,L,E]
+                fused_embedding = a0
+                seq_embedding = a1
+                pair_out = a2
+            else:
+                # legacy SSDN: a0=token outputs [B,L,E]
+                output_tokens = a0
+                pair_out = a1
+                attn = a2
+        except Exception:
+            # fallback: try unpacking differently
+            output_tokens = cformer_out[0]
+            pair_out = cformer_out[1]
+
+        # optional interaction on pooled prot/rna tokens when using token pooling
             if self._interaction_enabled and self.pooling == 'token':
                 try:
                     p = output[:, 1, :].unsqueeze(1)
@@ -385,21 +439,21 @@ class ESM2RiNALMo(nn.Module):
                 except Exception:
                     pass
 
-            complex_embedding = output + self.z_proj(z).sum(-2) * 0.001
+        # If we have fused_embedding from SSDNEnhanced, use it; otherwise fallback to pooling tokens
+        if fused_embedding is None:
+            output = output_tokens if output_tokens is not None else cformer_out[0]
             if self.pooling == 'token':
                 complex_embedding = output[:, 0, :].squeeze(1)
             else:
                 complex_embedding = (output * (~key_padding_mask).unsqueeze(-1)).sum(dim=1)
                 if self.pooling == 'mean':
-                    # Prot_mask: [N, L]
                     seq_mask_sum = (~key_padding_mask).sum(dim=1, keepdim=True)
                     complex_embedding = complex_embedding / (seq_mask_sum + 1e-10)
+        else:
+            complex_embedding = fused_embedding
 
-            output = self.pred_head(complex_embedding)
-            output = output.squeeze(1)
-            return output
-            
-        elif stage == 'pretune':
+        # Branch by stage: pretune, mutation, finetune/multitask, or default prediction
+        if stage == 'pretune':
             # -------------------------------------------CLIP feature generation ----------------------------------------------
             res_identifier = input['identifier']
             attn_mask = torch.ones((out_embedding.shape[0], out_embedding.shape[1], out_embedding.shape[1]), device=out_embedding.device).bool()
@@ -409,17 +463,34 @@ class ESM2RiNALMo(nn.Module):
                 res_identifier = torch.cat([prot_token_identifier, rna_token_identifier, res_identifier], dim=1)
                 attn_mask[:, 1:, 1:] = (res_identifier[:, :, None] == res_identifier[:, None, :])
             attn_mask = ~attn_mask
-            # all the ones in transformer mask means ignoring, which is different from the meaning of pos_mask !!!!
             if torch.isnan(z).any():
                 print("Found Nan in z!")
-            output, z, _ = self.c_former(out_embedding, z, key_padding_mask=key_padding_mask, need_attn_weights=False, attn_mask=attn_mask)
-            
-            # Output Embedding: [N, E]
+            # call c_former and normalize outputs (support SSDNEnhanced legacy and fused outputs)
+            cformer_res = self.c_former(out_embedding, z, key_padding_mask=key_padding_mask, need_attn_weights=False, attn_mask=attn_mask)
+            # cformer_res may be (output_tokens, pair_out, attn) OR (fused, seq_emb, struct_emb)
+            try:
+                a0, a1, a2 = cformer_res
+                if a0.dim() == 2:
+                    # SSDNEnhanced: a0=fused [B,E], a1=seq_emb [B,L,E]
+                    output = a1
+                    pair_out = a2
+                    attn = None
+                else:
+                    # legacy SSDN: a0=token outputs [B,L,E]
+                    output = a0
+                    pair_out = a1
+                    attn = a2
+            except Exception:
+                # fallback: assume token outputs
+                output = cformer_res[0]
+                pair_out = cformer_res[1]
+                attn = cformer_res[2] if len(cformer_res) > 2 else None
+
             if self.pooling == 'token':
+                # output is expected to be token outputs [B, L_tokens, E]
                 complex_embedding = output[:, 0, :].squeeze(1)
                 prot_embedding = output[:, 1, :].squeeze(1)
                 rna_embedding = output[:, 2, :].squeeze(1)
-                # apply lightweight cross-attention between pooled prot and rna embeddings if enabled
                 if self._interaction_enabled:
                     p = prot_embedding.unsqueeze(1)
                     r = rna_embedding.unsqueeze(1)
@@ -438,23 +509,44 @@ class ESM2RiNALMo(nn.Module):
                     complex_embedding = complex_embedding / (cplx_mask_sum + 1e-10)
                     prot_embedding = prot_embedding / (prot_mask_sum + 1e-10)
                     rna_embedding = rna_embedding / (rna_mask_sum + 1e-10)
-                    
+
             similarity = F.cosine_similarity(prot_embedding[:, None, :], rna_embedding[None, :, :], dim=2)
-
             if torch.isnan(z).any():
                 print("Found Nan in z!")
-            # ------------------------------------- Atom-level distance precdiction -------------------------------------------
-            
-            output, z, _ = self.c_former(out_embedding, z, key_padding_mask=key_padding_mask, need_attn_weights=False, attn_mask=None)
+            cformer_res2 = self.c_former(out_embedding, z, key_padding_mask=key_padding_mask, need_attn_weights=False, attn_mask=None)
+            try:
+                b0, b1, b2 = cformer_res2
+                if b0.dim() == 2:
+                    # SSDNEnhanced
+                    output = b1
+                    pair_out = b2
+                else:
+                    output = b0
+                    pair_out = b1
+            except Exception:
+                output = cformer_res2[0]
+                pair_out = cformer_res2[1]
 
-            if torch.isnan(z).any():
-                print("Found Nan in z!")
-
-            dist_logits = self.dist_head(z)
+            if torch.isnan(pair_out).any():
+                print("Found Nan in pair_out!")
+            # debug print: when DEBUG_MODEL env set, print pair_out shape and dist_head expected shapes
+            import os
+            if os.environ.get('DEBUG_MODEL', '0') == '1':
+                try:
+                    print('DEBUG: pair_out.shape before dist_head =', getattr(pair_out, 'shape', None))
+                    first_lin = None
+                    for m in self.dist_head.modules():
+                        if isinstance(m, nn.Linear):
+                            first_lin = m
+                            break
+                    if first_lin is not None:
+                        print('DEBUG: dist_head first Linear in_features, out_features =', first_lin.in_features, first_lin.out_features)
+                except Exception:
+                    pass
+            dist_logits = self.dist_head(pair_out)
             dist_logits = dist_logits[:, 3:, 3:, :]
-            # dist_prob = F.softmax(dist_logits, dim=-1)
-            return dist_logits, similarity 
-        
+            return dist_logits, similarity
+
         elif stage == 'mutation':
             input['prot'] = input['prot_mut']
             input['restype'] = input['mut_restype']

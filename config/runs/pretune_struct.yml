@@ -1,29 +1,25 @@
-output_dir: ./outputs/copra_pretune
-run_name: copra_pretune_ssdn
+output_dir: ./outputs/copra_pretrain_causal
+run_name: copra_pretrain_causal
 num_folds: 1
-# total training epochs
 epochs: 50
 patience: 5
 gpus: 1
 wandb: false
 ckpt: null
 ckpts: []
-run_name: copra_pretune
-precision: 32
-batch_size: 8
-folds: 1
-# Optional: set ckpt to resume
-# iters: 30000
-# Save periodic checkpoints every N epochs (set to 10 below)
-save_every_n_epochs: 10
-patience: 50
-output_dir: 'outputs/esm2rinalmo_650M/pretune_struct/esm2rinalmo_650M_cformer_PRI30k_fixed_interface_dist_random_mask0.15_tokenpooling/log_fold_0/checkpoint/epoch=9-val_loss=2.013.ckpt'
-gpus:
-  - 0
-ckpt: null
-
-run_name: 'esm2rinalmo_650M_cformer_PRI30k_fixed_interface_dist_random_mask0.15_tokenpooling'
-wandb: false
-num_folds: 1
 precision: 16
-accumulate_grad_batches: 5
+batch_size: 1
+accumulate_grad_batches: 16
+limit_train_batches: 1
+limit_val_batches: 1
+epochs: 1
+model_config: config/models/copra.yml
+data_config: config/datasets/PRI30k.yml
+
+# Causal pretraining flags (read by PretuneModule)
+causal_enabled: true
+causal_pretrain:
+  alignment_weight: 0.1
+  atomic_weight: 1.0
+  global_weight: 1.0
+  local_weight: 1.0

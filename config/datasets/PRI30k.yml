@@ -17,5 +17,5 @@ transform:
   - type: select_atom
     resolution: backbone
   - type: selected_region_with_distmap
-    patch_size: 256
+    patch_size: 128
   - type: subtract_center_of_mass

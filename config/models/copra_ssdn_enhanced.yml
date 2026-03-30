@@ -1,0 +1,51 @@
+model:
+  name: CoPRA_SSDN_Enhanced
+  version: v3.0
+  embed_dim: 320
+  pair_dim: 40
+  plm:
+    name: esm2
+    size: 650M
+    freeze: true
+  rlm:
+    name: rinalmo
+    size: 650M
+    freeze: true
+  ssdn:
+    type: ssdn_enhanced
+    num_layers: 8
+    num_heads: 4
+    cross_heads_start: 4
+    dropout: 0.1
+    use_enhanced: true
+  interaction_perception:
+    enabled: true
+    num_heads: 8
+    interface_threshold: 5.0
+  decoder:
+    task_emb_dim: 64
+    tasks: ['delta_g', 'delta_delta_g', 'binding_site']
+
+training:
+  pretrain:
+    batch_size: 4
+    epochs: 50
+    learning_rate: 3e-5
+    loss_weights:
+      global: 1.0
+      local: 1.0
+      atomic: 1.0
+      alignment: 0.1
+  finetune:
+    batch_size: 4
+    epochs: 100
+    learning_rate: 1e-5
+    cross_validation: 5
+    task_weights:
+      delta_g: 1.0
+      delta_delta_g: 0.5
+      binding_site: 0.3
+
+hardware:
+  gpu: 1
+  mixed_precision: true
