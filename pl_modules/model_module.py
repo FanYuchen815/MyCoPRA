@@ -142,8 +142,7 @@ class ModelModule(pl.LightningModule):
                     loss_weights['delta_delta_g'] * loss_delta_delta_g +
                     loss_weights['binding_site'] * loss_site)
 
-            self.train_loss = loss.detach()
-            self.log("train_loss", float(self.train_loss), batch_size=self.batch_size, on_step=True, on_epoch=False, prog_bar=True, sync_dist=True)
+            # keep only task losses internally; do not emit a combined train_loss metric
             self.log("train_delta_g", float(loss_delta_g.detach()), on_step=True, on_epoch=False)
             self.log("train_delta_delta_g", float(loss_delta_delta_g.detach()), on_step=True, on_epoch=False)
             if loss_site != 0.0:
@@ -155,8 +154,7 @@ class ModelModule(pl.LightningModule):
         y = batch['labels']
         pred = self.model(batch, self.data_args.strategy)
         loss = get_loss(self.l_type, pred, y, reduction='mean')
-        self.train_loss = loss.detach()
-        self.log("train_loss", float(self.train_loss), batch_size=self.batch_size, on_step=True, on_epoch=False, prog_bar=True, sync_dist=True)
+        # single-task legacy: do not emit combined train_loss metric
         return loss
 
     def on_validation_epoch_start(self):

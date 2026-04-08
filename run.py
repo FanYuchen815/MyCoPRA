@@ -95,12 +95,33 @@ class LightningRunner(object):
             print("Successfully initialized, start trainer...")
             strategy=DDPStrategy(find_unused_parameters=True)
             # strategy.lightning_restore_optimizer = False
-            # Build callbacks list: early stopping + best-checkpoint-by-val_loss
+            # Build callbacks list: early stopping + best-checkpoint.
+            # Choose the checkpoint monitor key depending on the training stage
+            if stage == 'pretune':
+                monitor_key = "val_loss"
+                mode = "min"
+                filename = '{epoch}-{val_loss:.3f}'
+            elif stage == 'ddG':
+                # DDGModule logs per-complex Pearson as 'val/pc_pearson'
+                monitor_key = "val/pc_pearson"
+                mode = "max"
+                filename = '{epoch}-{val_pc_pearson:.3f}'
+            elif stage == 'dG':
+                # ModelModule logs overall Pearson as 'val/all_pearson'
+                monitor_key = "val/all_pearson"
+                mode = "max"
+                filename = '{epoch}-{val_all_pearson:.3f}'
+            else:
+                monitor_key = "val_loss"
+                mode = "min"
+                filename = '{epoch}-{val_loss:.3f}'
+
+            checkpoint_cb = ModelCheckpoint(dirpath=(log_dir / 'checkpoint'), filename=filename,
+                                            monitor=monitor_key, mode=mode, save_last=False, save_top_k=1)
+
             callbacks = [
                 EarlyStopping(monitor="val_loss", mode="min", patience=self.run_args.patience, strict=False),
-                # Keep the best checkpoint by validation loss
-                ModelCheckpoint(dirpath=(log_dir / 'checkpoint'), filename='{epoch}-{val_loss:.3f}',
-                                monitor="val_loss", mode="min", save_last=False, save_top_k=1),
+                checkpoint_cb,
             ]
 
             # Optionally add a periodic checkpoint callback (e.g., every N epochs)

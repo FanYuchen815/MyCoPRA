@@ -145,8 +145,7 @@ class DDGModule(pl.LightningModule):
         # if torch.isnan(loss).any():
         #     print("Found nan in loss!", input)
         #     exit()
-        self.train_loss = loss.detach()
-        self.log("train_loss", float(self.train_loss), batch_size=self.batch_size, on_step=True, on_epoch=False, prog_bar=True, sync_dist=True)
+        # do not emit combined train_loss metric for DDGModule
         for complex, y_true, y_pred in zip(batch['complex'], batch['labels'], ddg_pred):
             result = {}
             result['complex'] = complex

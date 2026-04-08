@@ -188,36 +188,10 @@ class PretuneModule(pl.LightningModule):
         pred_dist, pred_clip = self.model(batch, self.data_args.strategy, stage='pretune', need_mask=True)
         loss_clip, loss_dist = self.cal_loss(pred_clip, y_clip, pred_dist, y_dist, res_identifier)
         loss = loss_clip + loss_dist
-        # Optional causal pretraining auxiliary losses (if data provides required fields)
-        # Optional causal pretraining auxiliary losses (if enabled in run_args and data provides required fields)
-        try:
-            causal_enabled = False
-            if isinstance(self.run_args, dict):
-                causal_enabled = bool(self.run_args.get('causal_enabled', False))
-            if causal_enabled:
-                causal_cfg = self.run_args.get('causal_pretrain', {}) if isinstance(self.run_args, dict) else {}
-                align_w = float(causal_cfg.get('alignment_weight', 0.1))
-                atomic_w = float(causal_cfg.get('atomic_weight', 1.0))
-
-                if 'protein_interface' in batch and 'rna_interface' in batch and 'interface_distances' in batch:
-                    loss_alignment = causal_loss.modality_alignment_loss(
-                        batch['protein_interface'], batch['rna_interface'], batch['interface_distances']
-                    )
-                    loss = loss + align_w * loss_alignment
-                    self.log('train_loss_alignment', float(loss_alignment.detach()), on_step=True, on_epoch=False)
-
-                if 'distance_matrix' in batch and 'affinity' in batch:
-                    loss_atomic = causal_loss.atomic_causal_loss(batch['distance_matrix'], batch['affinity'])
-                    loss = loss + atomic_w * loss_atomic
-                    self.log('train_loss_atomic', float(loss_atomic.detach()), on_step=True, on_epoch=False)
-        except Exception:
-            # avoid breaking training if causal losses are incompatible with batch
-            pass
+        # Only use clip + dist losses for training; remove auxiliary causal losses and combined train_loss logging
         if torch.isnan(loss).any():
             print("Found nan in loss!", input)
             exit()
-        self.train_loss = loss.detach()
-        self.log("train_loss", float(self.train_loss), batch_size=self.batch_size, on_step=True, on_epoch=False, prog_bar=True, sync_dist=True)
         self.log("train_clip_loss", float(loss_clip.detach()), batch_size=self.batch_size, on_step=True, on_epoch=False, prog_bar=True, sync_dist=True)
         self.log("train_dist_loss", float(loss_dist.detach()), batch_size=self.batch_size, on_step=True, on_epoch=False, prog_bar=True, sync_dist=True)
         return loss

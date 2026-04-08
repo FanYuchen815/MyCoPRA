@@ -41,7 +41,7 @@ train:
   temperature: 0.2
   max_iters: 30_000
   val_freq: 1000
-  seed: 2024
+  seed: 42
   max_grad_norm: 100.0
   optimizer:
     type: adam

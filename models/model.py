@@ -218,7 +218,9 @@ class ESM2RiNALMo(nn.Module):
         if esm_feat_size != rinalmo_feat_size:
             self.proj = 1
             self.project_feat= nn.Linear(esm_feat_size, rinalmo_feat_size)
-        self.complex_dim = kwargs['coformer']['embed_dim']
+        # determine complex embedding dimension with safe fallbacks
+        self.complex_dim = kwargs.get('coformer', {}).get('embed_dim',
+                    kwargs.get('embed_dim', kwargs.get('model', {}).get('embed_dim', pair_dim)))
         self.feat_size = rinalmo_feat_size
         self.proj_cplx= nn.Linear(self.feat_size, self.complex_dim)
         if lora_tune:
