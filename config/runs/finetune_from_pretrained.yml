@@ -1,10 +1,10 @@
 epochs: 20
 patience: 150
-output_dir: './outputs/esm2rinalmo_650M/finetune_from_pretrained/PRA310'
+output_dir: './outputs/finetune_from_pretrained/PRA310'
 gpus:
   - 0
-
-ckpt: /root/autodl-tmp/CoPRA/outputs/copra_pretrain_causal/log_fold_0/checkpoint/epoch=33-val_loss=1.119.ckpt
+  
+ckpt: outputs/copra_pretrain_enhanced/log_fold_0/checkpoint/epoch=46-val_loss=0.971.ckpt
 
 run_name: 'esm2rinalmo_finetune_from_pretrain'
 wandb: False

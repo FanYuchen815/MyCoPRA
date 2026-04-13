@@ -8,7 +8,6 @@ import pandas as pd
 import pytorch_lightning as pl
 from models.register import ModelRegister
 from utils.metrics import ScalarMetricAccumulator
-from models.components import causal_loss
                             
 def get_model(model_args:dict=None):
     # Ensure model registration modules are imported so ModelRegister is populated
@@ -194,6 +193,8 @@ class PretuneModule(pl.LightningModule):
             exit()
         self.log("train_clip_loss", float(loss_clip.detach()), batch_size=self.batch_size, on_step=True, on_epoch=False, prog_bar=True, sync_dist=True)
         self.log("train_dist_loss", float(loss_dist.detach()), batch_size=self.batch_size, on_step=True, on_epoch=False, prog_bar=True, sync_dist=True)
+        # also log combined train loss for pretraining runs
+        self.log("train_loss", float(loss.detach()), batch_size=self.batch_size, on_step=True, on_epoch=False, prog_bar=True, sync_dist=True)
         return loss
 
     def on_validation_epoch_start(self):

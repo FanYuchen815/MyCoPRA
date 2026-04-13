@@ -50,39 +50,37 @@ class SSDNBlock(nn.Module):
         # struct MLP
         struct_embed = self.struct_ln(struct_embed + self.struct_mlp(struct_embed))
 
-        # pooled cross interaction (lightweight)
-        seq_pool = x.mean(dim=1, keepdim=True)  # (B,1,E)
-        # struct_embed is pairwise (B, L, L, P): pool over both sequence axes
-        struct_pool = struct_embed.mean(dim=(1, 2)).unsqueeze(1)  # (B,1,P)
+        # per-token cross interaction (token <-> pairwise for each position)
+        # compute per-token struct pool: for each token i, pool pair features across the other axis
+        # struct_pool_tokens: (B, L, P)
+        struct_pool_tokens = struct_embed.mean(dim=2)
 
-        # project pooled struct into seq space for cross-attention
-        struct_pool_proj = self.struct_to_seq(struct_pool)
-        seq_upd = self.cross_adapter_seq(seq_pool, struct_pool_proj)
-        if self.cross_adapter_struct is not None:
-            # if struct adapter exists and expects pair_dim==embed_dim
-            # project seq pooled into struct dim first
-            seq_pool_proj = self.seq_to_struct(seq_pool)
-            struct_upd = self.cross_adapter_struct(seq_pool_proj, struct_pool)
-        else:
-            # project seq_pool into pair space if dims differ
-            struct_upd = self.seq_to_struct(seq_pool)
+        # project per-token struct into seq space and run cross-attention per token
+        struct_pool_proj_tokens = self.struct_to_seq(struct_pool_tokens)  # (B, L, E)
+        kv_mask = (~key_padding_mask) if key_padding_mask is not None else None
+        try:
+            seq_upd = self.cross_adapter_seq(x, struct_pool_proj_tokens, query_mask=None, kv_mask=kv_mask)
+        except Exception:
+            # fallback to pooled behavior if adapter fails
+            seq_pool = x.mean(dim=1, keepdim=True)
+            struct_pool = struct_embed.mean(dim=(1, 2)).unsqueeze(1)
+            struct_pool_proj = self.struct_to_seq(struct_pool)
+            seq_upd = self.cross_adapter_seq(seq_pool, struct_pool_proj)
 
-        # broadcast pooled updates back
-        # normalize updates along pooled dimension if adapters returned multiple pooled tokens
-        if seq_upd.dim() > 2:
-            seq_upd = seq_upd.mean(dim=1, keepdim=True)
-        if struct_upd.dim() > 2:
-            struct_upd = struct_upd.mean(dim=1, keepdim=True)
-
-        # broadcast pooled updates back to token / pairwise shapes safely using expand
-        L1 = x.shape[1]
-        x = x + seq_upd.expand(-1, L1, -1)
-        # struct_embed is (B, L, L, P); expand struct_upd to match
+        # For struct updates, project token-level seq into pair dim and expand to pairwise
+        seq_proj_to_pair = self.seq_to_struct(x)  # (B, L, P)
+        # build pairwise update by broadcasting token projections along one axis
         L = struct_embed.shape[1]
-        struct_embed = struct_embed + struct_upd.view(struct_upd.shape[0], 1, 1, struct_upd.shape[-1]).expand(-1, L, L, -1)
+        struct_upd = seq_proj_to_pair.unsqueeze(2).expand(-1, L, L, -1)
 
-        # gating: compute gate from pooled representations and apply to sequence channels
-        gate = torch.sigmoid(self.gate(torch.cat([seq_pool.squeeze(1), struct_pool.squeeze(1)], dim=-1))).unsqueeze(1)
+        # apply sequence update and struct update
+        x = x + seq_upd
+        struct_embed = struct_embed + struct_upd
+
+        # gating: compute gate from pooled representations (use token-wise pools)
+        seq_pool_scalar = x.mean(dim=1)
+        struct_pool_scalar = struct_pool_tokens.mean(dim=1)
+        gate = torch.sigmoid(self.gate(torch.cat([seq_pool_scalar, struct_pool_scalar], dim=-1))).unsqueeze(1)
         x = (1 - gate) * residual + gate * x
 
         return x, struct_embed, attn
@@ -184,49 +182,9 @@ class InteractionTypePerceptor(nn.Module):
         return self.gate_network(combined)
 
 
-class MultiScaleGeometricEncoder(nn.Module):
-    """多尺度几何编码器（原子/残基/链级）"""
-    def __init__(self, embed_dim, num_atoms=4):
-        super().__init__()
-        self.num_atoms = num_atoms
-        self.atom_encoder = nn.Sequential(
-            nn.Linear(num_atoms * 3, embed_dim),
-            nn.ReLU(),
-            nn.Linear(embed_dim, embed_dim)
-        )
-        self.residue_encoder = nn.Sequential(
-            nn.Linear(embed_dim, embed_dim),
-            nn.ReLU(),
-            nn.Linear(embed_dim, embed_dim)
-        )
-        self.chain_encoder = nn.Sequential(
-            nn.Linear(embed_dim, embed_dim),
-            nn.ReLU(),
-            nn.Linear(embed_dim, embed_dim)
-        )
-        self.fusion = nn.Sequential(
-            nn.Linear(embed_dim * 3, embed_dim),
-            nn.ReLU(),
-            nn.Linear(embed_dim, embed_dim)
-        )
-
-    def forward(self, atom_coords, residue_mask, chain_mask):
-        # atom_coords: [B, L, num_atoms, 3]
-        atom_features = atom_coords.view(atom_coords.size(0), atom_coords.size(1), -1)
-        atom_embed = self.atom_encoder(atom_features)  # [B, L, E]
-
-        residue_embed = self.residue_encoder(atom_embed)  # [B, L, E]
-
-        # chain_mask: [B, C, L]
-        chain_embed = torch.einsum('bcl,ble->bce', chain_mask.float(), residue_embed)
-        denom = chain_mask.sum(dim=-1, keepdim=True).clamp(min=1.0)
-        chain_embed = chain_embed / denom
-        chain_embed = self.chain_encoder(chain_embed)  # [B, C, E]
-
-        chain_embed_expanded = torch.einsum('bce,bcl->ble', chain_embed, chain_mask.float())
-
-        multi_scale = torch.cat([atom_embed, residue_embed, chain_embed_expanded], dim=-1)
-        return self.fusion(multi_scale)
+# MultiScaleGeometricEncoder removed: geometric fusion was implemented but
+# not passed from the higher-level model by default. To avoid unused
+# parameters and potential performance overhead, the encoder has been deleted.
 
 
 def _largest_divisor_leq(n, max_div):
@@ -276,13 +234,17 @@ class EntanglementAttention(nn.Module):
         struct_proj = self.struct_to_seq(struct_pooled)  # [B, L, E]
         seq_cross, _ = self.cross_seq2struct(seq_self, struct_proj, struct_proj)
 
-        seq_pooled = seq_emb.mean(dim=1, keepdim=True)  # [B,1,E]
-        seq_proj = self.seq_to_struct(seq_pooled)  # [B,1,P]
-        # Expand seq_proj to shape [B, L, P], then reshape to [B*L, 1, P]
-        # and finally expand to [B*L, L, P] to match struct_reshaped's batch dimension
-        seq_proj_expanded = seq_proj.expand(-1, L, -1).reshape(B * L, 1, P).expand(-1, L, -1)
+        # Use token-wise sequence projection so each (i, :) pair slice
+        # receives the sequence information specific to token i.
+        # seq_self: [B, L, E] from sequence self-attention above.
+        seq_proj_per_token = self.seq_to_struct(seq_self)  # [B, L, P]
+        # reshape to (B*L, 1, P) then expand to (B*L, L, P) to match struct_reshaped
+        seq_proj_expanded = seq_proj_per_token.reshape(B * L, 1, P).expand(-1, L, -1)
         struct_cross, _ = self.cross_struct2seq(struct_reshaped, seq_proj_expanded, seq_proj_expanded)
         struct_cross = struct_cross.view(B, L, L, P)
+
+        # keep a global pooled seq vector for gate computation (preserve original gating behavior)
+        seq_pooled = seq_emb.mean(dim=1, keepdim=True)  # [B,1,E]
 
         w_seq, w_struct, w_mix = interaction_weights.unbind(dim=-1)
 
@@ -298,11 +260,10 @@ class EntanglementAttention(nn.Module):
 
 
 class SSDNEnhanced(nn.Module):
-    """增强版 SSDN：ITP + EntanglementAttention + 多尺度几何融合"""
+    """增强版 SSDN：ITP + EntanglementAttention"""
     def __init__(self, embed_dim, pair_dim, num_layers=8, num_heads=4, cross_heads_start=4, dropout=0.1):
         super().__init__()
         self.itp = InteractionTypePerceptor(embed_dim)
-        self.geo_encoder = MultiScaleGeometricEncoder(embed_dim)
 
         self.layers = nn.ModuleList([
             EntanglementAttention(embed_dim, pair_dim, num_heads=num_heads, cross_heads=min(cross_heads_start + i, 16))
@@ -323,13 +284,9 @@ class SSDNEnhanced(nn.Module):
     def forward(self, seq_emb, struct_emb, key_padding_mask=None, need_attn_weights=False, attn_mask=None, atom_coords=None, residue_mask=None, chain_mask=None):
         # Accepts legacy SSDN call signature: forward(x, struct, key_padding_mask=..., need_attn_weights=...)
         # If geometric inputs are provided, encode and fuse; otherwise skip geometric encoder.
-        if atom_coords is not None and residue_mask is not None and chain_mask is not None:
-            try:
-                geo_embed = self.geo_encoder(atom_coords, residue_mask, chain_mask)
-                seq_emb = seq_emb + geo_embed
-            except Exception:
-                # if geometric encoder fails or inputs incompatible, skip gracefully
-                pass
+        # Geometric encoder removed: geometric inputs are no longer used here.
+        # The forward signature keeps the atom_coords/residue_mask/chain_mask
+        # parameters for compatibility but they are ignored.
 
         interaction_weights = self.itp(seq_emb, struct_emb)
 

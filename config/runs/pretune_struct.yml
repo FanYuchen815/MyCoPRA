@@ -1,5 +1,5 @@
-output_dir: ./outputs/copra_pretrain_causal
-run_name: copra_pretrain_causal
+output_dir: ./outputs/copra_pretrain_enhanced
+run_name: copra_pretrain_enhanced
 num_folds: 1
 epochs: 50
 patience: 50
