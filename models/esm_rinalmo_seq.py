@@ -139,8 +139,28 @@ class ESM2RiNALMo(nn.Module):
             ssdn_pair_dim = fusion_cfg.get('pair_dim', kwargs.get('coformer', {}).get('pair_dim', 40))
             cross_heads_start = fusion_cfg.get('cross_heads_start', ssdn_heads)
             ssdn_dropout = fusion_cfg.get('dropout', 0.1)
-            embed_dim_cfg = kwargs.get('coformer', {}).get('embed_dim', pair_dim if 'pair_dim' in locals() else 320)
-            self.transformer = SSDNEnhanced(embed_dim_cfg, ssdn_pair_dim, num_layers=ssdn_layers, num_heads=ssdn_heads, cross_heads_start=cross_heads_start, dropout=ssdn_dropout)
+            embed_dim_cfg = kwargs.get('coformer', {}).get('embed_dim', 320)
+
+            # ablation flags
+            use_itp = fusion_cfg.get('use_itp', True)
+            itp_weights = fusion_cfg.get('itp_weights', None)
+            use_cross = fusion_cfg.get('use_cross', True)
+            use_gate = fusion_cfg.get('use_gate', True)
+            cross_direction = fusion_cfg.get('cross_direction', 'both')
+
+            self.transformer = SSDNEnhanced(
+                embed_dim_cfg,
+                ssdn_pair_dim,
+                num_layers=ssdn_layers,
+                num_heads=ssdn_heads,
+                cross_heads_start=cross_heads_start,
+                dropout=ssdn_dropout,
+                use_itp=use_itp,
+                itp_weights=itp_weights,
+                use_cross=use_cross,
+                use_gate=use_gate,
+                cross_direction=cross_direction,
+            )
         else:
             self.transformer = Transformer(**kwargs['transformer'])
         self.complex_dim = kwargs['transformer']['embed_dim']

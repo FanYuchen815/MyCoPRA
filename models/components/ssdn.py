@@ -165,10 +165,8 @@ class InteractionTypePerceptor(nn.Module):
         # if struct_pool has smaller dim, expand/trim as needed via projection
         # ensure tensors are float
         seq_proj = self.seq_proj(seq_pool)
-        # if struct_pool has different last dim, pad/trim before projection by viewing
+        # if struct_pool has different last dim, pad/trim before projection
         if struct_pool.shape[-1] != seq_pool.shape[-1]:
-            # project struct_pool via a linear that expects seq_pool-sized input
-            # if struct_pool smaller, pad with zeros
             if struct_pool.shape[-1] < seq_pool.shape[-1]:
                 pad = torch.zeros(struct_pool.shape[0], seq_pool.shape[-1] - struct_pool.shape[-1], device=struct_pool.device, dtype=struct_pool.dtype)
                 struct_adj = torch.cat([struct_pool, pad], dim=-1)
@@ -180,6 +178,25 @@ class InteractionTypePerceptor(nn.Module):
 
         combined = torch.cat([seq_proj, struct_proj], dim=-1)
         return self.gate_network(combined)
+
+
+class FixedITP(nn.Module):
+    """固定权重的 ITP，用于消融（返回固定归一化权重向量）。"""
+    def __init__(self, weights):
+        super().__init__()
+        w = torch.tensor(weights, dtype=torch.float32)
+        if w.dim() == 1:
+            if w.sum().item() != 0:
+                w = w / w.sum()
+        else:
+            w = w.view(-1)
+            if w.sum().item() != 0:
+                w = w / w.sum()
+        self.register_buffer('w', w)
+
+    def forward(self, seq_emb, struct_emb):
+        B = seq_emb.size(0)
+        return self.w.unsqueeze(0).expand(B, -1)
 
 
 # MultiScaleGeometricEncoder removed: geometric fusion was implemented but
@@ -196,9 +213,16 @@ def _largest_divisor_leq(n, max_div):
 
 
 class EntanglementAttention(nn.Module):
-    """缠结注意力层：序列自注意 + 结构自注意 + 交叉注意 + 动态门控"""
-    def __init__(self, embed_dim, pair_dim, num_heads=4, cross_heads=4):
+    """缠结注意力层：序列自注意 + 结构自注意 + 交叉注意 + 动态门控
+
+    支持可选的 cross-attention 与门控开关，以及可配置的跨流方向。
+    """
+    def __init__(self, embed_dim, pair_dim, num_heads=4, cross_heads=4, use_cross=True, use_gate=True, cross_direction='both'):
         super().__init__()
+        self.use_cross = use_cross
+        self.use_gate = use_gate
+        self.cross_direction = cross_direction
+
         seq_heads = _largest_divisor_leq(embed_dim, num_heads)
         struct_heads = _largest_divisor_leq(pair_dim, num_heads)
         cross_heads_seq = _largest_divisor_leq(embed_dim, cross_heads)
@@ -206,11 +230,22 @@ class EntanglementAttention(nn.Module):
 
         self.seq_self_attn = nn.MultiheadAttention(embed_dim, seq_heads, batch_first=True)
         self.struct_self_attn = nn.MultiheadAttention(pair_dim, struct_heads, batch_first=True)
-        self.cross_seq2struct = nn.MultiheadAttention(embed_dim, cross_heads_seq, batch_first=True)
-        self.cross_struct2seq = nn.MultiheadAttention(pair_dim, cross_heads_struct, batch_first=True)
 
-        self.seq_gate = nn.Sequential(nn.Linear(embed_dim + pair_dim, embed_dim), nn.Sigmoid())
-        self.struct_gate = nn.Sequential(nn.Linear(pair_dim + embed_dim, pair_dim), nn.Sigmoid())
+        # only construct cross attention modules if enabled
+        if self.use_cross:
+            self.cross_seq2struct = nn.MultiheadAttention(embed_dim, cross_heads_seq, batch_first=True)
+            self.cross_struct2seq = nn.MultiheadAttention(pair_dim, cross_heads_struct, batch_first=True)
+        else:
+            self.cross_seq2struct = None
+            self.cross_struct2seq = None
+
+        # gating networks (optional)
+        if self.use_gate:
+            self.seq_gate = nn.Sequential(nn.Linear(embed_dim + pair_dim, embed_dim), nn.Sigmoid())
+            self.struct_gate = nn.Sequential(nn.Linear(pair_dim + embed_dim, pair_dim), nn.Sigmoid())
+        else:
+            self.seq_gate = None
+            self.struct_gate = None
 
         self.struct_to_seq = nn.Linear(pair_dim, embed_dim)
         self.seq_to_struct = nn.Linear(embed_dim, pair_dim)
@@ -232,41 +267,71 @@ class EntanglementAttention(nn.Module):
 
         struct_pooled = struct_emb.mean(dim=2)  # [B, L, P]
         struct_proj = self.struct_to_seq(struct_pooled)  # [B, L, E]
-        seq_cross, _ = self.cross_seq2struct(seq_self, struct_proj, struct_proj)
 
-        # Use token-wise sequence projection so each (i, :) pair slice
-        # receives the sequence information specific to token i.
-        # seq_self: [B, L, E] from sequence self-attention above.
+        # compute seq_cross if allowed and configured
+        if self.use_cross and (self.cross_direction in ('both', 'seq2struct')) and (self.cross_seq2struct is not None):
+            seq_cross, _ = self.cross_seq2struct(seq_self, struct_proj, struct_proj)
+        else:
+            seq_cross = torch.zeros_like(seq_self)
+
+        # build token-wise projected seq for struct cross-attention
         seq_proj_per_token = self.seq_to_struct(seq_self)  # [B, L, P]
-        # reshape to (B*L, 1, P) then expand to (B*L, L, P) to match struct_reshaped
         seq_proj_expanded = seq_proj_per_token.reshape(B * L, 1, P).expand(-1, L, -1)
-        struct_cross, _ = self.cross_struct2seq(struct_reshaped, seq_proj_expanded, seq_proj_expanded)
-        struct_cross = struct_cross.view(B, L, L, P)
 
-        # keep a global pooled seq vector for gate computation (preserve original gating behavior)
+        if self.use_cross and (self.cross_direction in ('both', 'struct2seq')) and (self.cross_struct2seq is not None):
+            struct_cross, _ = self.cross_struct2seq(struct_reshaped, seq_proj_expanded, seq_proj_expanded)
+            struct_cross = struct_cross.view(B, L, L, P)
+        else:
+            struct_cross = torch.zeros_like(struct_self)
+
         seq_pooled = seq_emb.mean(dim=1, keepdim=True)  # [B,1,E]
 
         w_seq, w_struct, w_mix = interaction_weights.unbind(dim=-1)
 
         seq_entangled = w_seq.view(B, 1, 1) * seq_self + w_mix.view(B, 1, 1) * seq_cross
-        gate_seq = self.seq_gate(torch.cat([seq_entangled.mean(dim=1), struct_pooled.mean(dim=1)], dim=-1)).unsqueeze(1)
+        if self.use_gate and (self.seq_gate is not None):
+            gate_seq = self.seq_gate(torch.cat([seq_entangled.mean(dim=1), struct_pooled.mean(dim=1)], dim=-1)).unsqueeze(1)
+        else:
+            gate_seq = torch.ones((B, 1, 1), device=seq_emb.device, dtype=seq_emb.dtype)
         seq_out = seq_emb + gate_seq * seq_entangled
 
         struct_entangled = w_struct.view(B, 1, 1, 1) * struct_self + w_mix.view(B, 1, 1, 1) * struct_cross
-        gate_struct = self.struct_gate(torch.cat([seq_pooled.squeeze(1), struct_entangled.mean(dim=(1, 2))], dim=-1)).unsqueeze(1).unsqueeze(1)
+        if self.use_gate and (self.struct_gate is not None):
+            gate_struct = self.struct_gate(torch.cat([seq_pooled.squeeze(1), struct_entangled.mean(dim=(1, 2))], dim=-1)).unsqueeze(1).unsqueeze(1)
+        else:
+            gate_struct = torch.ones((B, 1, 1, 1), device=seq_emb.device, dtype=seq_emb.dtype)
         struct_out = struct_emb + gate_struct * struct_entangled
 
         return seq_out, struct_out
 
 
 class SSDNEnhanced(nn.Module):
-    """增强版 SSDN：ITP + EntanglementAttention"""
-    def __init__(self, embed_dim, pair_dim, num_layers=8, num_heads=4, cross_heads_start=4, dropout=0.1):
-        super().__init__()
-        self.itp = InteractionTypePerceptor(embed_dim)
+    """增强版 SSDN：ITP + EntanglementAttention
 
+    新增参数：use_itp / itp_weights / use_cross / use_gate / cross_direction
+    用于做消融实验时快速开关各模块。
+    """
+    def __init__(self, embed_dim, pair_dim, num_layers=8, num_heads=4, cross_heads_start=4, dropout=0.1,
+                 use_itp=True, itp_weights=None, use_cross=True, use_gate=True, cross_direction='both'):
+        super().__init__()
+        # interaction type percepter: either learnable or fixed (for w/o ITP)
+        if use_itp:
+            self.itp = InteractionTypePerceptor(embed_dim)
+        else:
+            # default fallback weights if not provided
+            default_weights = itp_weights if itp_weights is not None else [0.5, 0.3, 0.2]
+            self.itp = FixedITP(default_weights)
+
+        # build layers with configurable cross/gate behavior
         self.layers = nn.ModuleList([
-            EntanglementAttention(embed_dim, pair_dim, num_heads=num_heads, cross_heads=min(cross_heads_start + i, 16))
+            EntanglementAttention(
+                embed_dim, pair_dim,
+                num_heads=num_heads,
+                cross_heads=min(cross_heads_start + i, 16),
+                use_cross=use_cross,
+                use_gate=use_gate,
+                cross_direction=cross_direction,
+            )
             for i in range(num_layers)
         ])
 
