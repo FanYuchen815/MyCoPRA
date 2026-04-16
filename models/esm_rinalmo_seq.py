@@ -4,7 +4,6 @@ import esm
 from rinalmo.config import model_config
 from rinalmo.model.model import RiNALMo
 from models.register import ModelRegister
-# LoRA support removed — keep interface compatible but ignore lora args
 from models.components.valina_transformer import Transformer
 from models.model import cat_pad, segment_cat_pad
 R = ModelRegister()
