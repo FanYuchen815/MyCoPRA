@@ -12,7 +12,7 @@ try:
 except Exception:
     pass
 
-cfg = yaml.safe_load(open('config/models/copra.yml'))
+cfg = yaml.safe_load(open('config/models/prorna_ssdn.yml'))
 model_cfg = EasyDict(cfg)
 print('Loaded model cfg keys:', model_cfg.keys())
 try:

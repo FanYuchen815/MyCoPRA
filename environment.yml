@@ -1,4 +1,4 @@
-name: copra_h
+name: PRORNA_SSDN_h
 channels:
   - pytorch3d
   - pytorch

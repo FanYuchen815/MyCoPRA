@@ -1,3 +1,7 @@
+"""
+运行入口文档
+"""
+
 import json
 import os
 os.environ["NUMEXPR_MAX_THREADS"] = '56'
@@ -86,7 +90,7 @@ class LightningRunner(object):
             # Trainer setting
             name = self.run_args.run_name + time.strftime("%Y-%m-%d-%H-%M-%S")
             if self.run_args.wandb:
-                wandb.init(project='copra', name=name)
+                wandb.init(project='PRORNA_SSDN', name=name)
                 logger = WandbLogger()
             else:
                 logger = CSVLogger(str(log_dir))

@@ -2,7 +2,7 @@
 """Compute ITP weights for a dataset using a trained model checkpoint.
 
 Example:
-  python scripts/compute_itp_stats.py --ckpt outputs/ablation/full/model.pt --model_config config/models/copra.yml --data_config config/datasets/PRA310.yml --out outputs/itp_weights_full.csv --fold 0
+    python scripts/compute_itp_stats.py --ckpt outputs/ablation/full/model.pt --model_config config/models/prorna_ssdn.yml --data_config config/datasets/PRA310.yml --out outputs/itp_weights_full.csv --fold 0
 """
 import os
 import sys
@@ -97,7 +97,7 @@ def load_model_from_cfg_and_ckpt(model_cfg_path, ckpt_path, device='cpu'):
 def main():
     p = argparse.ArgumentParser()
     p.add_argument('--ckpt', required=True)
-    p.add_argument('--model_config', default='config/models/copra.yml')
+    p.add_argument('--model_config', default='config/models/prorna_ssdn.yml')
     p.add_argument('--data_config', default='config/datasets/PRA310.yml')
     p.add_argument('--out', default='outputs/itp_weights.csv')
     p.add_argument('--fold', type=int, default=0)

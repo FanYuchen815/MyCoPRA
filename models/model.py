@@ -146,7 +146,7 @@ def segment_cat_pad(prot_embedding, prot_chains, prot_mask, na_embedding, na_cha
     # print("Result shape:", result)
     return result, masks
 
-@R.register('copra')
+@R.register('PRORNA_SSDN')
 class ESM2RiNALMo(nn.Module):
     def __init__(self, 
                  rinalmo_weights='./weights/rinalmo_giga_pretrained.pt',
@@ -623,9 +623,23 @@ class ESM2RiNALMo(nn.Module):
 
         else:
             raise NotImplementedError
-            
+            raise NotImplementedError
+
+
+# Register alias name so users can reference the same implementation
+# under the new name 'PRORNA_SSDN' without changing the class.
+try:
+    R.register('PRORNA_SSDN')(ESM2RiNALMo)
+except Exception:
+    # Fallback: directly assign into the register dict
+    R['PRORNA_SSDN'] = ESM2RiNALMo
+try:
+    R.register('prorna_ssdn')(ESM2RiNALMo)
+except Exception:
+    R['prorna_ssdn'] = ESM2RiNALMo
 
         
         
             
             
+

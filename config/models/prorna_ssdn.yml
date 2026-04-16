@@ -1,6 +1,6 @@
 resume: null
 model: 
-  model_type: PRORNA_SSDN
+  model_type: prorna_ssdn
   esm_type: 650M
   pooling: token
   output_dim: 1

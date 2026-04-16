@@ -1,3 +1,7 @@
+"""
+结构处理工具
+"""
+
 import torch
 import numpy as np
 

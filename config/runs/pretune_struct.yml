@@ -1,5 +1,5 @@
-output_dir: ./outputs/copra_pretrain_enhanced
-run_name: copra_pretrain_enhanced
+output_dir: ./outputs/PRORNA_SSDN_pretrain_enhanced
+run_name: PRORNA_SSDN_pretrain_enhanced
 num_folds: 1
 epochs: 50
 patience: 50
@@ -10,7 +10,7 @@ ckpts: []
 precision: 16
 batch_size: 4
 accumulate_grad_batches: 16
-model_config: config/models/copra.yml
+model_config: config/models/prorna_ssdn.yml
 data_config: config/datasets/PRI30k.yml
 
 # Causal pretraining flags (read by PretuneModule)

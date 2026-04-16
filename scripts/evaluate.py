@@ -24,7 +24,7 @@ def main():
     except Exception:
         pass
     model_reg = ModelRegister()
-    model = model_reg['copra']()
+    model = model_reg['PRORNA_SSDN']()
     if args.checkpoint:
         state = torch.load(args.checkpoint, map_location='cpu')
         try:

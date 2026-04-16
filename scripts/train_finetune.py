@@ -21,7 +21,7 @@ def main():
 
     model_cfg_path = run_cfg.get('model_config')
 
-    model_args = {'model_type': 'copra'}
+    model_args = {'model_type': 'PRORNA_SSDN'}
     data_args = type('X', (), {'batch_size': run_cfg['batch_size'], 'loss_type': 'mse'})
     run_args = run_cfg
 

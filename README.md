@@ -1,4 +1,4 @@
-# 🥥 CoPRA
+# 🥥 PRORNA_SSDN
 
 <p align="left">
   <a href="https://pytorch.org/">
@@ -17,13 +17,13 @@
     <img src="https://img.shields.io/badge/Huggingface-FFD21E?style=flat" />
   </a>
 </p>
-This is the official implementation of CoPRA: Bridging Cross-domain Pretrained Sequence Models with Complex Structures for Protein-RNA Binding Affinity Prediction (AAAI 2025)
+This is the official implementation of PRORNA_SSDN: Bridging Cross-domain Pretrained Sequence Models with Complex Structures for Protein-RNA Binding Affinity Prediction (AAAI 2025)
 
 <img src="./assets/model_overview.jpg" alt="Overview of CoPRA" width="800">
 
 
 
-CoPRA is a state-of-the-art predictor of protein-RNA binding affinity. The framework of CoPRA is based on a protein language model and an RNA-language model, with complex structure as input. The model was pre-trained on the PRI30k dataset via a bi-scope stratege and fine-tuned on PRA310. CoPRA can also be redirected to predict mutation effects, showing its strong per-structure prediction performance on mCSM_RNA dataset. Please see more details in [our paper](https://arxiv.org/abs/2409.03773).
+PRORNA_SSDN is a state-of-the-art predictor of protein-RNA binding affinity. The framework of PRORNA_SSDN is based on a protein language model and an RNA-language model, with complex structure as input. The model was pre-trained on the PRI30k dataset via a bi-scope stratege and fine-tuned on PRA310. PRORNA_SSDN can also be redirected to predict mutation effects, showing its strong per-structure prediction performance on mCSM_RNA dataset. Please see more details in [our paper](https://arxiv.org/abs/2409.03773).
 
 Please do not hesitate to contact us or create an issue/PR if you have any questions or suggestions!
 
@@ -69,33 +69,33 @@ The performance of 5-fold cross validation on PRA310 reaches state-of-the-art, a
 
 **Note1:** It is normal that the first epoch for training on a new dataset is relatively slow, because we need to conduct the caching procedure.
 
-**Note2:** We also support LoRA tuning and all-param tuning. For LoRA tuning, just specify `lora_tune: true` in `./config/models/copra.yml`. For all-param tuning, just specify `fix_lms: false` in `./config/models/copra.yml`.
+**Note2:** We also support LoRA tuning and all-param tuning. For LoRA tuning, just specify `lora_tune: true` in `./config/models/prorna_ssdn.yml`. For all-param tuning, just specify `fix_lms: false` in `./config/models/prorna_ssdn.yml`.
 
 ### Run 5-fold inference on PRA310
 ```
-python run.py test dG --model_config ./config/models/copra.yml --data_config ./config/datasets/PRA310.yml --run_config ./config/runs/test_basic.yml
+python run.py test dG --model_config ./config/models/prorna_ssdn.yml --data_config ./config/datasets/PRA310.yml --run_config ./config/runs/test_basic.yml
 ```
 
 ### Run finetune on PRA310
 ```
-python run.py finetune dG --model_config ./config/models/copra.yml --data_config ./config/datasets/PRA310.yml --run_config ./config/runs/finetune_struct.yml
+python run.py finetune dG --model_config ./config/models/prorna_ssdn.yml --data_config ./config/datasets/PRA310.yml --run_config ./config/runs/finetune_struct.yml
 ```
 
 ### Run finetune on PRA201
 ```
-python run.py finetune dG --model_config ./config/models/copra.yml --data_config ./config/datasets/PRA201.yml --run_config ./config/runs/finetune_struct.yml
+python run.py finetune dG --model_config ./config/models/prorna_ssdn.yml --data_config ./config/datasets/PRA201.yml --run_config ./config/runs/finetune_struct.yml
 ```
 
 ### Run Bi-scope Pre-training on PRI30k
 ```
-python run.py finetune pretune --model_config ./config/models/copra.yml --data_config ./config/datasets/biolip.yml --run_config ./config/runs/pretune_struct.yml
+python run.py finetune pretune --model_config ./config/models/prorna_ssdn.yml --data_config ./config/datasets/biolip.yml --run_config ./config/runs/pretune_struct.yml
 ```
 After pretraining, you can continue to finetune on a new dataset with the finetuning scripts and the specification of ckpt for the pretrained model in config/runs/finetune_struct.yml
 
 ## 🚀 Zero-shot Blind-test on the protein-RNA mutation effect datasets
 
 ```
-python run.py test ddG --model_config ./config/models/copra.yml --data_config ./config/datasets/blindtest.yml --run_config ./config/runs/zero_shot_blindtest.yml
+python run.py test ddG --model_config ./config/models/prorna_ssdn.yml --data_config ./config/datasets/blindtest.yml --run_config ./config/runs/zero_shot_blindtest.yml
 ```
 
 ## 🖌️ Citation

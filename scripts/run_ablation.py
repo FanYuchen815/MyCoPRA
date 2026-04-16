@@ -2,7 +2,7 @@
 """Run ablation variants by patching a base model config and invoking run.py.
 
 Usage examples:
-  python scripts/run_ablation.py --variant full --model_config config/models/copra.yml --data_config config/datasets/PRA310.yml --run_config config/runs/finetune_struct.yml --output_dir outputs/ablation/full --epochs 50
+    python scripts/run_ablation.py --variant full --model_config config/models/prorna_ssdn.yml --data_config config/datasets/PRA310.yml --run_config config/runs/finetune_struct.yml --output_dir outputs/ablation/full --epochs 50
   python scripts/run_ablation.py --variant "w/o ITP" --pilot --epochs 3
 """
 import argparse
@@ -41,7 +41,7 @@ def patch_model_config(base_model_cfg, variant_cfg):
 def main():
     p = argparse.ArgumentParser()
     p.add_argument('--variant', type=str, required=True)
-    p.add_argument('--model_config', type=str, default='config/models/copra.yml')
+    p.add_argument('--model_config', type=str, default='config/models/prorna_ssdn.yml')
     p.add_argument('--data_config', type=str, default='config/datasets/PRA310.yml')
     p.add_argument('--run_config', type=str, default='config/runs/finetune_struct.yml')
     p.add_argument('--output_dir', type=str, default='outputs/ablation')
