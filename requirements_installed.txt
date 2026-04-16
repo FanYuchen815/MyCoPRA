@@ -63,7 +63,7 @@ numpy @ file:///home/conda/feedstock_root/build_artifacts/numpy_1707225380409/wo
 nvidia-ml-py @ file:///home/conda/feedstock_root/build_artifacts/nvidia-ml-py_1769147335600/work
 packaging @ file:///home/conda/feedstock_root/build_artifacts/bld/rattler-build_packaging_1769093650/work
 pandas @ file:///home/conda/feedstock_root/build_artifacts/pandas_1764614464206/work
-peft==0.13.0
+# peft removed (LoRA support removed)
 pillow @ file:///home/conda/feedstock_root/build_artifacts/bld/rattler-build_pillow_1770794002/work
 platformdirs @ file:///home/conda/feedstock_root/build_artifacts/bld/rattler-build_platformdirs_1771233827/work
 ply @ file:///home/conda/feedstock_root/build_artifacts/ply_1733239724146/work

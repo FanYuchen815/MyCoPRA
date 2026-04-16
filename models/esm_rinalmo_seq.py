@@ -4,11 +4,7 @@ import esm
 from rinalmo.config import model_config
 from rinalmo.model.model import RiNALMo
 from models.register import ModelRegister
-from peft import (
-    LoraConfig,
-    get_peft_model,
-)
-from models.lora_tune import LoRAESM, LoRARiNALMo, ESMConfig, RiNALMoConfig
+# LoRA support removed — keep interface compatible but ignore lora args
 from models.components.valina_transformer import Transformer
 from models.model import cat_pad, segment_cat_pad
 R = ModelRegister()
@@ -108,9 +104,7 @@ class ESM2RiNALMo(nn.Module):
                  pooling='token',
                  output_dim=1,
                  fix_lms=True,
-                 lora_tune=False,
-                 lora_rank=16,
-                 lora_alpha=32,
+                 
                  representation_layer=33,
                  vallina=True,
                  **kwargs
@@ -173,30 +167,8 @@ class ESM2RiNALMo(nn.Module):
             nn.init.normal_(self.prot_embedding)
             nn.init.normal_(self.rna_embedding)
             nn.init.normal_(self.complex_embedding)
-        if lora_tune:
-            # copied from LongLoRA
-            rinalmo_lora_config = LoraConfig(
-                r=lora_rank,
-                bias="none",
-                lora_alpha=lora_alpha
-            )
-            esm_lora_config = LoraConfig(
-                r=lora_rank,
-                bias="none",
-                lora_alpha=lora_alpha
-            )
-            rinalmo_config = RiNALMoConfig()
-            esm_config = ESMConfig()
-            self.rinalmo = LoRARiNALMo(self.rinalmo, rinalmo_config)
-            # print(esm_config)
-            self.esm = LoRAESM(self.esm, esm_config)
-            # print("ESM:", self.esm)
-            self.rinalmo = get_peft_model(self.rinalmo, rinalmo_lora_config)
-            # print("Get RINALMO DONE!!!!!")
-            self.esm = get_peft_model(self.esm, esm_lora_config)
-            # print("Get ESM DONE!!!!!")
-
-        elif fix_lms:
+        # LoRA support removed.
+        if fix_lms:
             for p in self.rinalmo.parameters():
                 p.requires_grad_(False)
             for p in self.esm.parameters():

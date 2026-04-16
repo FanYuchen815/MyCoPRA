@@ -24,7 +24,7 @@ modules = [
     ("torch_scatter", "torch_scatter"),
     ("torch_sparse", "torch_sparse"),
     ("torch_cluster", "torch_cluster"),
-    ("peft", "peft"),
+    # peft removed (LoRA support removed)
     ("biotite", "biotite"),
     ("cpdb_protein", "cpdb"),
     ("torchsummary", "torchsummary"),

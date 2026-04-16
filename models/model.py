@@ -7,14 +7,9 @@ from models.encoders.pair import ResiduePairEncoder
 from models.register import ModelRegister
 from models.components.ssdn import SSDN, SSDNEnhanced, TaskAdaptiveDecoder
 import torch.nn.functional as F
-from models.lora_tune import LoRAESM, LoRARiNALMo, ESMConfig, RiNALMoConfig
 import random
 from data.complex import SUPER_PROT_IDX, SUPER_RNA_IDX, SUPER_CPLX_IDX, SUPER_CHAIN_IDX
 
-from peft import (
-    LoraConfig,
-    get_peft_model,
-)
 R = ModelRegister()
 from models.components.interaction_adapter import InteractionAdapter
 
@@ -156,9 +151,7 @@ class ESM2RiNALMo(nn.Module):
                  output_dim=1,
                  pair_dim=320,
                  fix_lms=True,
-                 lora_tune=True,
-                 lora_rank=16,
-                 lora_alpha=32,
+                 
                  representation_layer=33,
                  dist_dim=40,
                  **kwargs
@@ -167,8 +160,8 @@ class ESM2RiNALMo(nn.Module):
         self.esm, esm_feat_size = load_esm(esm_type)
         self.rinalmo, rinalmo_feat_size = load_rinalmo(rinalmo_weights, rinalmo_type)
         # Optionally freeze pretrained language/model encoders to save memory and compute
-        # If LoRA tuning is enabled, we avoid freezing so LoRA adapters can be trained.
-        if fix_lms and not lora_tune:
+        # LoRA removed: freeze LMs when requested
+        if fix_lms:
             for p in self.esm.parameters():
                 p.requires_grad = False
             for p in self.rinalmo.parameters():
@@ -223,41 +216,8 @@ class ESM2RiNALMo(nn.Module):
                     kwargs.get('embed_dim', kwargs.get('model', {}).get('embed_dim', pair_dim)))
         self.feat_size = rinalmo_feat_size
         self.proj_cplx= nn.Linear(self.feat_size, self.complex_dim)
-        if lora_tune:
-            import re
-            pattern = r'\((\w+)\): Linear'
-            rinalmo_linear_layers = re.findall(pattern, str(self.rinalmo.modules))
-            rinalmo_linear_modules = list(set(rinalmo_linear_layers))
-            print("In rinalmo:", rinalmo_linear_modules)
-            rinalmo_linear_modules = ['Wqkv']
-            esm_linear_layers = re.findall(pattern, str(self.esm.modules))
-            esm_linear_modules = list(set(esm_linear_layers))
-            print("In esm:", esm_linear_modules)
-            print("Getting Lora Models...")
-            # copied from LongLoRA
-            rinalmo_lora_config = LoraConfig(
-                r=lora_rank,
-                bias="none",
-                target_modules=rinalmo_linear_modules,
-                lora_alpha=lora_alpha
-            )
-            esm_lora_config = LoraConfig(
-                r=lora_rank,
-                bias="none",
-                target_modules=esm_linear_modules,
-                lora_alpha=lora_alpha
-            )
-            rinalmo_config = RiNALMoConfig()
-            esm_config = ESMConfig()
-            self.rinalmo = LoRARiNALMo(self.rinalmo, rinalmo_config)
-            self.esm = LoRAESM(self.esm, esm_config)
-            self.rinalmo = get_peft_model(self.rinalmo, rinalmo_lora_config)
-            print("Get RINALMO DONE!!!!!")
-            self.rinalmo.print_trainable_parameters()
-            self.esm = get_peft_model(self.esm, esm_lora_config)
-            print("Get ESM DONE!!!!!")
-            self.esm.print_trainable_parameters()
-        elif fix_lms:
+        # LoRA support removed. Freeze LMs if requested.
+        if fix_lms:
             for p in self.rinalmo.parameters():
                 p.requires_grad_(False)
             for p in self.esm.parameters():

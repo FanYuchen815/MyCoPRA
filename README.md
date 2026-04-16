@@ -69,7 +69,7 @@ The performance of 5-fold cross validation on PRA310 reaches state-of-the-art, a
 
 **Note1:** It is normal that the first epoch for training on a new dataset is relatively slow, because we need to conduct the caching procedure.
 
-**Note2:** We also support LoRA tuning and all-param tuning. For LoRA tuning, just specify `lora_tune: true` in `./config/models/prorna_ssdn.yml`. For all-param tuning, just specify `fix_lms: false` in `./config/models/prorna_ssdn.yml`.
+**Note2:** For all-param tuning, set `fix_lms: false` in `./config/models/prorna_ssdn.yml`.
 
 ### Run 5-fold inference on PRA310
 ```

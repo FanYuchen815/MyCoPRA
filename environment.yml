@@ -34,7 +34,6 @@ dependencies:
     - seaborn==0.13.2
     - triton==2.1.0
     - torchsummary==1.5.1
-    - peft==0.14.0
     - biotite==0.41.2
     - cpdb-protein==0.2.0
     - -i https://pypi.tuna.tsinghua.edu.cn/simple

@@ -6,11 +6,6 @@ from models.encoders.pair import ResiduePairEncoder
 from models.encoders.attn import GAEncoder
 from models.register import ModelRegister
 from models.model import load_esm, load_rinalmo, segment_cat_pad, cat_pad
-from models.lora_tune import LoRAESM, LoRARiNALMo, ESMConfig, RiNALMoConfig
-from peft import (
-    LoraConfig,
-    get_peft_model,
-)
 R = ModelRegister()
 
 @R.register('ipa')
@@ -26,9 +21,7 @@ class InvariantPointAttention(nn.Module):
                  pooling='mean', 
                  output_dim=1, 
                  representation_layer=33,
-                 lora_tune=False,
-                 lora_rank=16,
-                 lora_alpha=32,
+                 
                  **kwargs):
         
         super().__init__()
@@ -44,28 +37,8 @@ class InvariantPointAttention(nn.Module):
                 self.project_feat= nn.Linear(esm_feat_size, rinalmo_feat_size)
             self.feat_size = rinalmo_feat_size
             self.proj_cplx= nn.Linear(self.feat_size, node_feat_dim)
-            if lora_tune:
-                print("Getting Lora!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
-                # copied from LongLoRA
-                rinalmo_lora_config = LoraConfig(
-                    r=lora_rank,
-                    bias="none",
-                    lora_alpha=lora_alpha
-                )
-                esm_lora_config = LoraConfig(
-                    r=lora_rank,
-                    bias="none",
-                    lora_alpha=lora_alpha
-                )
-                rinalmo_config = RiNALMoConfig()
-                esm_config = ESMConfig()
-                self.rinalmo = LoRARiNALMo(self.rinalmo, rinalmo_config)
-                self.esm = LoRAESM(self.esm, esm_config)
-                self.rinalmo = get_peft_model(self.rinalmo, rinalmo_lora_config)
-                print("Get RINALMO DONE!!!!!")
-                self.esm = get_peft_model(self.esm, esm_lora_config)
-                print("Get ESM DONE!!!!!")
-            elif fix_lms:
+            # LoRA support removed. Freeze LMs if requested.
+            if fix_lms:
                 for p in self.rinalmo.parameters():
                     p.requires_grad_(False)
                 for p in self.esm.parameters():

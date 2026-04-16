@@ -5,24 +5,9 @@ model:
   pooling: token
   output_dim: 1
   fix_lms: true
-  lora_tune: false
-  lora_rank: 16
-  lora_alpha: 32
   pair_dim: 40
   dist_dim: 40
   representation_layer: 33
-  coformer: 
-    embed_dim: 320
-    pair_dim: 40
-    num_blocks: 6
-    num_heads: 20
-    use_rot_emb: true
-    attn_qkv_bias: false
-    attention_dropout: 0.1
-    transition_dropout: 0.0
-    residual_dropout: 0.1
-    transition_factor: 4
-    use_flash_attn: false
   fusion:
     type: ssdn_enhanced
     use_enhanced: true
