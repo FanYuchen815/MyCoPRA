@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 
 from models.encoders.single import PerResidueEncoder
-from models.encoders.pair import ResiduePairEncoder
+from models.encoders.geometric_attention import ResiduePairEncoder
 from models.encoders.attn import GAEncoder
 from models.register import ModelRegister
 from models.model import load_esm, load_rinalmo, segment_cat_pad, cat_pad

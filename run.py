@@ -18,7 +18,7 @@ import time
 from easydict import EasyDict
 import torch
 import pytorch_lightning as pl
-from pytorch_lightning.loggers import CSVLogger, WandbLogger
+from pytorch_lightning.loggers import CSVLogger, WandbLogger, TensorBoardLogger
 from pytorch_lightning.callbacks import TQDMProgressBar, EarlyStopping, ModelCheckpoint, ModelSummary
 from pytorch_lightning.strategies.ddp import DDPStrategy
 from pl_modules import ModelModule, DataModule, PretuneModule, DDGModule
@@ -93,7 +93,9 @@ class LightningRunner(object):
                 wandb.init(project='PRORNA_SSDN', name=name)
                 logger = WandbLogger()
             else:
-                logger = CSVLogger(str(log_dir))
+                csv_logger = CSVLogger(str(log_dir))
+                tb_logger = TensorBoardLogger(str(log_dir), name='tensorboard')
+                logger = [csv_logger, tb_logger]
             # version_dir = Path(logger_csv.log_dir)
             pl.seed_everything(self.model_args.train.seed)
             print("Successfully initialized, start trainer...")
@@ -159,24 +161,15 @@ class LightningRunner(object):
                     precision=self.run_args.get('precision', 32),
                     log_every_n_steps=3,
             )
-            # If a checkpoint path is provided, load its weights manually into
-            # the LightningModule with strict=False so we only load matching
-            # parameter tensors (do not restore optimizer/scheduler state).
+            # If a checkpoint path is provided, use Lightning's native resume
+            # to restore model weights, optimizer state, scheduler state, and epoch.
+            ckpt_path = None
             if hasattr(self.run_args, 'ckpt') and self.run_args.ckpt is not None:
                 ckpt_path = self.run_args.ckpt
-                try:
-                    ckpt = torch.load(ckpt_path, map_location='cpu')
-                    state_dict = ckpt.get('state_dict', ckpt)
-                    lsd_result = model.load_state_dict(state_dict, strict=False)
-                    print('Loaded checkpoint weights from %s' % ckpt_path)
-                    print('Missing keys (%d): %s' % (len(lsd_result.missing_keys), ', '.join(lsd_result.missing_keys)))
-                    print('Unexpected keys (%d): %s' % (len(lsd_result.unexpected_keys), ', '.join(lsd_result.unexpected_keys)))
-                except Exception as e:
-                    print('Failed to load checkpoint weights manually:', e)
+                print(f'Resuming from checkpoint: {ckpt_path}')
 
-            # Run training normally; do not pass ckpt_path to Trainer.fit so
-            # Lightning does not attempt to restore optimizer/scheduler state.
-            trainer.fit(model=model, datamodule=data_module)
+            # Run training with optional checkpoint resume
+            trainer.fit(model=model, datamodule=data_module, ckpt_path=ckpt_path)
             print(f"Training fold {k} Finished!")
             trainer.strategy.barrier()
             print("Best Validation Results:")
@@ -203,15 +196,15 @@ class LightningRunner(object):
             data_module = DataModule(dataset_args=self.dataset_args, **self.dataset_args, col_group=f'fold_{k}')
             # data_module.setup()
             model = self.select_module(stage, log_dir)
-            logger = CSVLogger(str(log_dir))
+            csv_logger = CSVLogger(str(log_dir))
+            tb_logger = TensorBoardLogger(str(log_dir), name='tensorboard')
+            logger = [csv_logger, tb_logger]
             strategy=DDPStrategy(find_unused_parameters=True)
             # strategy.lightning_restore_optimizer = False
             trainer = pl.Trainer(
                 devices=gpus,
                 max_epochs=0,
-                logger=[
-                    logger,
-                ],
+                logger=logger,
                 callbacks=[
                     TQDMProgressBar(refresh_rate=1),
                 ],

@@ -507,7 +507,7 @@ def chain2arrays(chain, idx):
 
 if __name__ == '__main__':
     import pickle
-    pdbs = ProteinInput.from_pdb(io.StringIO('/home/rhan21/Research/DrugDD/UniPPI/datasets/SKEMPIv2/PDBs/1EFN.pdb'),
+    pdbs = ProteinInput.from_pdb(io.StringIO('/root/autodl-tmp/CoPRA/datasets/PRA310/PDBs/1A4T.pdb'),
                                           with_angles=True, return_dict=True)
     chain_a = pdbs['A'].to_atom14()
     with open('protein_input.pkl', 'wb') as f:

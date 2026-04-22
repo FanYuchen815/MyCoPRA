@@ -3,7 +3,7 @@ import torch
 import esm
 from rinalmo.config import model_config
 from rinalmo.model.model import RiNALMo
-from models.encoders.pair import ResiduePairEncoder
+from models.encoders.geometric_attention import ResiduePairEncoder
 from models.register import ModelRegister
 from models.components.ssdn import SSDN, SSDNEnhanced, TaskAdaptiveDecoder
 import torch.nn.functional as F
@@ -346,16 +346,66 @@ class ESM2RiNALMo(nn.Module):
             mask_atoms=mask_atoms,
         )
         if need_mask:
-            # Random mask rows/columns, 50% probability to mask 15% positions, 50% probability to keep the same
+            # Randomly mask a small fraction of rows/cols in the pair tensor per-sample.
+            # Use a generic boolean-broadcasting approach that locates the axes
+            # equal to sequence length and applies mask across them, so this
+            # code is robust to extra intermediate dimensions.
+            seq_len = aa.size(1)
             for i in range(z.shape[0]):
                 to_mask = torch.rand(1).item() > 0.5
                 if not to_mask:
                     continue
-                valid = list(range(3, z.shape[1]))
-                mask_indices = random.sample(valid, int(len(valid) * 0.15))
-                mask_val = self.mask_token.to(z.dtype)
-                z[i, mask_indices, :, :] = mask_val.repeat(len(mask_indices), z.shape[2], 1)
-                z[i, :, mask_indices, :] = mask_val.repeat(z.shape[1], len(mask_indices), 1)
+                # choose indices to mask (avoid first 3 special tokens)
+                valid = list(range(3, seq_len))
+                k = max(1, int(len(valid) * 0.15))
+                mask_indices = random.sample(valid, k)
+                if len(mask_indices) == 0:
+                    continue
+
+                # boolean vector for residues
+                row_mask = torch.zeros(seq_len, dtype=torch.bool, device=z.device)
+                col_mask = torch.zeros(seq_len, dtype=torch.bool, device=z.device)
+                row_mask[mask_indices] = True
+                col_mask[mask_indices] = True
+
+                # mask token vector (feat_dim,)
+                mask_val = self.mask_token.to(z.dtype).squeeze(0)
+
+                # operate on z[i] (all axes except batch and feat)
+                z_i = z[i]
+                feat_dim = z_i.shape[-1]
+                spatial_shape = list(z_i.shape[:-1])  # e.g., (L,L) or (X,L,L)
+
+                # find axes among spatial_shape that correspond to sequence (length == seq_len)
+                seq_axes = [idx for idx, s in enumerate(spatial_shape) if s == seq_len]
+                if len(seq_axes) < 1:
+                    # nothing to mask
+                    continue
+
+                # pick first two axes for row/col if available, otherwise use first for both
+                row_axis = seq_axes[0]
+                col_axis = seq_axes[1] if len(seq_axes) > 1 else seq_axes[0]
+
+                # build broadcastable views for row and col masks
+                row_view_shape = [1] * len(spatial_shape)
+                row_view_shape[row_axis] = seq_len
+                row_view = row_mask.view(row_view_shape).expand(*spatial_shape)
+
+                col_view_shape = [1] * len(spatial_shape)
+                col_view_shape[col_axis] = seq_len
+                col_view = col_mask.view(col_view_shape).expand(*spatial_shape)
+
+                pos_mask = (row_view | col_view)  # boolean mask over spatial positions
+                n_selected = int(pos_mask.sum().item())
+                if n_selected == 0:
+                    continue
+
+                # assign mask_val to selected spatial positions (last dim is feat)
+                z_vals = z_i[pos_mask]  # shape (n_selected, feat_dim)
+                assign_val = mask_val.unsqueeze(0).expand(n_selected, feat_dim)
+                z_i[pos_mask] = assign_val
+                # write back
+                z[i] = z_i
             
         return out_embedding, z, key_padding_mask
         

@@ -20,6 +20,21 @@ SUPER_CPLX_IDX = 29
 SUPER_CHAIN_IDX = 4
 PADDING_NODE_IDX = 26
 
+"""
+结构信息预处理：
+输出：
+Protein-RNA Complex(
+  seq: MKTAYILGDFE...ACGUGCAUG...
+  length: 245
+  mask: 11111111111111111111111111111111111111111111111111...
+  chainid: 000000000000000000000000000000000000000000111111...
+  identifier: 000000000000000000000000000000000000000000111111...
+  restype: (245,)
+  atom_mask: (245, 64)
+  atom_positions: (245, 64, 3)
+)
+"""
+
 @dataclass
 class ComplexInput:
     seq: str # L

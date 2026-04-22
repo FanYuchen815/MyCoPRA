@@ -158,8 +158,25 @@ class InteractionTypePerceptor(nn.Module):
         )
 
     def forward(self, seq_emb, struct_emb):
-        seq_pool = seq_emb.mean(dim=1)      # [B, E]
-        struct_pool = struct_emb.mean(dim=(1, 2))  # [B, P]
+        # Robust pooling: collapse all non-batch and non-last dims, then average.
+        # This supports inputs like [B, L, E], [B, L, L, P], [B, X, L, L, P], etc.
+        B = seq_emb.size(0)
+        seq_last = seq_emb.size(-1)
+        seq_pool = seq_emb.reshape(B, -1, seq_last).mean(dim=1)  # [B, E]
+
+        struct_last = struct_emb.size(-1)
+        struct_pool = struct_emb.reshape(struct_emb.size(0), -1, struct_last).mean(dim=1)  # [B, P]
+
+        '''
+        # optional debug output when DEBUG_SSDN_ITP=1
+        import os
+        if os.environ.get('DEBUG_SSDN_ITP', '0') == '1':
+            try:
+                print('DEBUG_SSDN_ITP: seq_emb.shape=', seq_emb.shape, 'struct_emb.shape=', struct_emb.shape)
+                print('DEBUG_SSDN_ITP: seq_pool.shape=', seq_pool.shape, 'struct_pool.shape=', struct_pool.shape)
+            except Exception:
+                pass
+        '''
 
         # project pools to embed_dim for stable gating
         # if struct_pool has smaller dim, expand/trim as needed via projection
@@ -256,6 +273,18 @@ class EntanglementAttention(nn.Module):
     def forward(self, seq_emb, struct_emb, interaction_weights):
         B, L, E = seq_emb.shape
         P = struct_emb.shape[-1]
+
+        # If struct_emb contains extra leading dimensions (e.g., [B, X, L, L, P]),
+        # collapse those pre-dimensions by averaging to obtain [B, L, L, P].
+        if struct_emb.dim() > 4:
+            # expect last three dims to be [L, L, P]
+            if struct_emb.shape[-3] == L and struct_emb.shape[-2] == L:
+                pre_shape = struct_emb.shape[1:-3]
+                if len(pre_shape) > 0:
+                    struct_emb = struct_emb.reshape(B, -1, struct_emb.shape[-3], struct_emb.shape[-2], P).mean(dim=1)
+            else:
+                # fallback: flatten all leading dims (except batch) and try to average
+                struct_emb = struct_emb.reshape(B, -1, struct_emb.shape[-1]).mean(dim=1).reshape(B, L, L, P)
 
         seq_self, _ = self.seq_self_attn(seq_emb, seq_emb, seq_emb)
         seq_self = self.seq_norm(seq_emb + seq_self)
