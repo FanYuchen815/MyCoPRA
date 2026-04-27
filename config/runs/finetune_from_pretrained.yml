@@ -1,11 +1,11 @@
-epochs: 68 # 在预训练保留权重的轮数基础上微调20轮，当前预训练保留的是第48轮
+epochs: 20 # 在预训练保留权重的轮数基础上微调20轮，当前预训练保留的是第48轮
 patience: 150
 output_dir: './outputs/finetune_from_pretrained/PRA310'
 gpus:
   - 0
   
-ckpt: ./outputs/PRORNA_SSDN_pretrain_enhanced/log_fold_0/checkpoint/epoch=48-val_loss=1.059.ckpt
+ckpt: null
 
-run_name: 'esm2rinalmo_finetune_from_pretrain'
+run_name: 'SSDN_finetune_from_pretrain'
 wandb: False
 num_folds: 5

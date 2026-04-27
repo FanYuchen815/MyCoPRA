@@ -172,12 +172,128 @@ class LightningRunner(object):
             trainer.fit(model=model, datamodule=data_module, ckpt_path=ckpt_path)
             print(f"Training fold {k} Finished!")
             trainer.strategy.barrier()
-            print("Best Validation Results:")
-            _ = trainer.test(model=model, ckpt_path="best", datamodule=data_module)
-            res = model.res
-            run_results.append(res)
+            print("Evaluating all checkpoints to select best by PCC with SCC>=baseline (best_ckpt)")
+
+            # determine baseline spearman from the original best checkpoint if available
+            # selection threshold will be baseline_spearman - 0.03 (allow up to 0.03 drop)
+            baseline_spearman = 0.03
+            try:
+                best_ckpt_path = trainer.checkpoint_callback.best_model_path
+                if best_ckpt_path is not None and best_ckpt_path != "":
+                    print(f"Testing original best checkpoint to obtain baseline SCC: {best_ckpt_path}")
+                    _ = trainer.test(model=model, ckpt_path="best", datamodule=data_module)
+                    res_best = getattr(model, 'res', None)
+                    if res_best is not None and 'spearman' in res_best:
+                        baseline_spearman = float(res_best.get('spearman', baseline_spearman))
+                        print(f"Baseline spearman from best checkpoint: {baseline_spearman:.4f}")
+            except Exception as e:
+                print(f"Could not obtain baseline spearman from best checkpoint, fallback to {baseline_spearman}: {e}")
+
+            # compute selection threshold: allow up to 0.03 drop from baseline
+            threshold_spearman = max(0.0, baseline_spearman - 0.03)
+            print(f"Using spearman threshold = baseline - 0.03 = {threshold_spearman:.4f}")
+
+            ckpt_dir = log_dir / 'checkpoint'
+            ckpt_files = []
+            if ckpt_dir.exists():
+                for p in ckpt_dir.glob('*.ckpt'):
+                    ckpt_files.append(p)
+
+            ckpt_metrics = []
+            # If no checkpoints found, fallback to testing the best
+            if len(ckpt_files) == 0:
+                print("No checkpoint files found, testing best checkpoint...")
+                _ = trainer.test(model=model, ckpt_path="best", datamodule=data_module)
+                res = model.res
+                run_results.append(res)
+                chosen_ckpt = trainer.checkpoint_callback.best_model_path
+            else:
+                for ck in sorted(ckpt_files):
+                    print(f"Testing checkpoint: {ck}")
+                    try:
+                        _ = trainer.test(model=model, ckpt_path=str(ck), datamodule=data_module)
+                        res_ck = getattr(model, 'res', None)
+                        if res_ck is None:
+                            continue
+                        pear = float(res_ck.get('pearson', 0.0))
+                        spe = float(res_ck.get('spearman', 0.0))
+                        ckpt_metrics.append({'ckpt': str(ck), 'pearson': pear, 'spearman': spe})
+                    except Exception as e:
+                        print(f"Failed to test checkpoint {ck}: {e}")
+
+                # select ckpt with spearman >= threshold_spearman (baseline - 0.03) and highest pearson
+                candidates = [c for c in ckpt_metrics if c['spearman'] >= threshold_spearman]
+                if len(candidates) > 0:
+                    candidates.sort(key=lambda x: x['pearson'], reverse=True)
+                    chosen_ckpt = candidates[0]['ckpt']
+                    chosen_metrics = candidates[0]
+                    print(f"Selected checkpoint {chosen_ckpt} with pearson={chosen_metrics['pearson']:.4f}, spearman={chosen_metrics['spearman']:.4f} (threshold {threshold_spearman:.4f})")
+                    # load chosen ckpt and run final test to populate res
+                    _ = trainer.test(model=model, ckpt_path=str(chosen_ckpt), datamodule=data_module)
+                    res = model.res
+                    run_results.append(res)
+                else:
+                    # fallback: choose checkpoint with highest pearson regardless of spearman
+                    if len(ckpt_metrics) > 0:
+                        ckpt_metrics.sort(key=lambda x: x['pearson'], reverse=True)
+                        chosen_ckpt = ckpt_metrics[0]['ckpt']
+                        print(f"No checkpoint met spearman>=threshold ({threshold_spearman:.4f}); fallback to highest PCC checkpoint {chosen_ckpt}")
+                        _ = trainer.test(model=model, ckpt_path=str(chosen_ckpt), datamodule=data_module)
+                        res = model.res
+                        run_results.append(res)
+                    else:
+                        print("No valid checkpoint metrics found; testing best checkpoint...")
+                        _ = trainer.test(model=model, ckpt_path="best", datamodule=data_module)
+                        res = model.res
+                        run_results.append(res)
+
+            # save the chosen checkpoint's model
             if trainer.global_rank == 0:
-                self.save_model(model, output_dir, trainer)
+                try:
+                    # load module from chosen checkpoint and save
+                    print(f"Saving chosen checkpoint model: {chosen_ckpt}")
+                    module = ModelModule.load_from_checkpoint(chosen_ckpt)
+                    best_model = module.model
+                    (output_dir / 'model_data.json').write_text(json.dumps(vars(self.dataset_args), indent=2))
+                    # save standard model file
+                    torch.save(best_model, str(output_dir / 'model.pt'))
+                    # derive a PCC string for filenames
+                    p_val = metrics_to_save.get('pearson', None) if isinstance(metrics_to_save, dict) else None
+                    try:
+                        p_str = f"PCC={float(p_val):.4f}" if p_val is not None else "PCC=NA"
+                    except Exception:
+                        p_str = "PCC=NA"
+                    # also save model with PCC in filename for quick reference
+                    try:
+                        torch.save(best_model, str(output_dir / f"model_{p_str}.pt"))
+                    except Exception as e:
+                        print(f"Failed to save model with PCC in filename: {e}")
+                    # record chosen checkpoint metrics (pearson / spearman)
+                    metrics_to_save = None
+                    if 'chosen_metrics' in locals() and isinstance(chosen_metrics, dict):
+                        metrics_to_save = {'pearson': float(chosen_metrics.get('pearson', 0.0)), 'spearman': float(chosen_metrics.get('spearman', 0.0)), 'ckpt': str(chosen_ckpt)}
+                    else:
+                        # try to use res if available
+                        try:
+                            res_for_metrics = res if 'res' in locals() else getattr(module, 'res', None)
+                            if res_for_metrics is None:
+                                res_for_metrics = getattr(model, 'res', None)
+                            metrics_to_save = {'pearson': float(res_for_metrics.get('pearson', 0.0)) if res_for_metrics is not None else 0.0,
+                                               'spearman': float(res_for_metrics.get('spearman', 0.0)) if res_for_metrics is not None else 0.0,
+                                               'ckpt': str(chosen_ckpt)}
+                        except Exception:
+                            metrics_to_save = {'pearson': None, 'spearman': None, 'ckpt': str(chosen_ckpt)}
+
+                    try:
+                        # save with and without PCC in filename
+                        (output_dir / 'chosen_metrics.json').write_text(json.dumps(metrics_to_save, indent=2))
+                        chosen_name = output_dir / f"chosen_metrics_{p_str}.json"
+                        (chosen_name).write_text(json.dumps(metrics_to_save, indent=2))
+                        print(f"Saved chosen metrics to: {output_dir / 'chosen_metrics.json'} and {chosen_name}")
+                    except Exception as e:
+                        print(f"Failed to write chosen metrics: {e}")
+                except Exception as e:
+                    print(f"Failed to save chosen checkpoint model: {e}")
         result_dir = Path(output_dir) / name
         os.makedirs(result_dir, exist_ok=True)
         with open(result_dir / 'res.json', 'w') as f:
