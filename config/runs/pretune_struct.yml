@@ -1,14 +1,14 @@
 output_dir: ./outputs/PRORNA_SSDN_pretrain_enhanced
 run_name: PRORNA_SSDN_pretrain_enhanced
 num_folds: 1
-epochs: 100
+epochs: 50
 patience: 50
 gpus: 1
 wandb: false
-ckpt: ./outputs/PRORNA_SSDN_pretrain_enhanced/log_fold_0/checkpoint/epoch=48-val_loss=1.059.ckpt
+ckpt: null
 ckpts: []
 precision: 16
-batch_size: 4
+batch_size: 12
 accumulate_grad_batches: 16
 model_config: config/models/prorna_ssdn.yml
 data_config: config/datasets/PRI30k.yml

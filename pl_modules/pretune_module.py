@@ -166,8 +166,15 @@ class PretuneModule(pl.LightningModule):
         total_y_dists = torch.cat(total_y_dists)
         total_y_dists_inv = torch.cat(total_y_dists_inv)
         # y_dist_one_hot = F.one_hot(indices, num_classes=32).float()
-        loss_clip_forward = F.cross_entropy(pred_clip / self.temperature, y_clip.long())
-        loss_clip_inverse = F.cross_entropy(pred_clip.transpose(0, 1) / self.temperature, y_clip.long())
+        # pred_clip may be a tuple (forward_logits, inverse_logits) when using cross-card negatives
+        if isinstance(pred_clip, (tuple, list)):
+            pred_clip_forward, pred_clip_inverse = pred_clip
+        else:
+            pred_clip_forward = pred_clip
+            pred_clip_inverse = pred_clip.transpose(0, 1)
+
+        loss_clip_forward = F.cross_entropy(pred_clip_forward / self.temperature, y_clip.long())
+        loss_clip_inverse = F.cross_entropy(pred_clip_inverse / self.temperature, y_clip.long())
         loss_clip = 0.5 * (loss_clip_forward + loss_clip_inverse)
         # print("Loss CLIP:", loss_clip)
         # loss_dist_forward = F.cross_entropy(y_interface_pred.permute(0, 3, 1, 2) / self.temperature , y_interface_dist.long())
@@ -182,8 +189,14 @@ class PretuneModule(pl.LightningModule):
     def training_step(self, batch, batch_idx):
         y_dist = batch['atom_min_dist']
         res_identifier = batch['identifier']
-        # y_clip = batch['clip_label']
-        y_clip = torch.arange(batch['size'], dtype=torch.long, device=y_dist.device)
+        # construct global target indices for cross-card negatives when distributed
+        if torch.distributed.is_available() and torch.distributed.is_initialized():
+            rank = torch.distributed.get_rank()
+            local_b = batch['size']
+            start = rank * local_b
+            y_clip = torch.arange(start, start + local_b, dtype=torch.long, device=y_dist.device)
+        else:
+            y_clip = torch.arange(batch['size'], dtype=torch.long, device=y_dist.device)
         pred_dist, pred_clip = self.model(batch, self.data_args.strategy, stage='pretune', need_mask=True)
         loss_clip, loss_dist = self.cal_loss(pred_clip, y_clip, pred_dist, y_dist, res_identifier)
         loss = loss_clip + loss_dist
@@ -204,7 +217,13 @@ class PretuneModule(pl.LightningModule):
     def validation_step(self, batch, batch_idx):
         y_dist = batch['atom_min_dist']
         res_identifier = batch['identifier']
-        y_clip = torch.arange(batch['size'], dtype=torch.long, device=y_dist.device)
+        if torch.distributed.is_available() and torch.distributed.is_initialized():
+            rank = torch.distributed.get_rank()
+            local_b = batch['size']
+            start = rank * local_b
+            y_clip = torch.arange(start, start + local_b, dtype=torch.long, device=y_dist.device)
+        else:
+            y_clip = torch.arange(batch['size'], dtype=torch.long, device=y_dist.device)
         pred_dist, pred_clip = self.model(batch, self.data_args.strategy, stage='pretune', need_mask=True)
         
         loss_clip, loss_dist = self.cal_loss(pred_clip, y_clip, pred_dist, y_dist, res_identifier)
@@ -229,7 +248,13 @@ class PretuneModule(pl.LightningModule):
     def test_step(self, batch, batch_idx):
         y_dist = batch['atom_min_dist']
         res_identifier = batch['identifier']
-        y_clip = torch.arange(batch['size'], dtype=torch.long, device=y_dist.device)
+        if torch.distributed.is_available() and torch.distributed.is_initialized():
+            rank = torch.distributed.get_rank()
+            local_b = batch['size']
+            start = rank * local_b
+            y_clip = torch.arange(start, start + local_b, dtype=torch.long, device=y_dist.device)
+        else:
+            y_clip = torch.arange(batch['size'], dtype=torch.long, device=y_dist.device)
         pred_dist, pred_clip = self.model(batch, self.data_args.strategy, stage='pretune', need_mask=True)
         loss_clip, loss_dist = self.cal_loss(pred_clip, y_clip, pred_dist, y_dist, res_identifier)
         test_loss = loss_clip + loss_dist

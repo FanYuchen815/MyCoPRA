@@ -522,7 +522,33 @@ class ESM2RiNALMo(nn.Module):
                     prot_embedding = prot_embedding / (prot_mask_sum + 1e-10)
                     rna_embedding = rna_embedding / (rna_mask_sum + 1e-10)
 
-            similarity = F.cosine_similarity(prot_embedding[:, None, :], rna_embedding[None, :, :], dim=2)
+            # normalize embeddings
+            prot_norm = F.normalize(prot_embedding, dim=1)
+            rna_norm = F.normalize(rna_embedding, dim=1)
+
+            # gather embeddings across processes to form global negatives when distributed
+            if torch.distributed.is_available() and torch.distributed.is_initialized() and torch.distributed.get_world_size() > 1:
+                world_size = torch.distributed.get_world_size()
+                # assume equal local batch sizes across ranks; create tensors to gather into
+                gathered_p = [torch.zeros_like(prot_norm) for _ in range(world_size)]
+                gathered_r = [torch.zeros_like(rna_norm) for _ in range(world_size)]
+                try:
+                    torch.distributed.all_gather(gathered_p, prot_norm)
+                    torch.distributed.all_gather(gathered_r, rna_norm)
+                    prot_all = torch.cat(gathered_p, dim=0)
+                    rna_all = torch.cat(gathered_r, dim=0)
+                except Exception:
+                    # fallback to local only if gather fails
+                    prot_all = prot_norm
+                    rna_all = rna_norm
+            else:
+                prot_all = prot_norm
+                rna_all = rna_norm
+
+            # compute logits: local prot vs all rna (rows: local prot, cols: all rna)
+            similarity = F.cosine_similarity(prot_norm[:, None, :], rna_all[None, :, :], dim=2)
+            # also compute inverse direction: local rna vs all prot (rows: local rna, cols: all prot)
+            similarity_inv = F.cosine_similarity(rna_norm[:, None, :], prot_all[None, :, :], dim=2)
             if torch.isnan(z).any():
                 print("Found Nan in z!")
             cformer_res2 = self.c_former(out_embedding, z, key_padding_mask=key_padding_mask, need_attn_weights=False, attn_mask=None)
@@ -557,7 +583,8 @@ class ESM2RiNALMo(nn.Module):
                     pass
             dist_logits = self.dist_head(pair_out)
             dist_logits = dist_logits[:, 3:, 3:, :]
-            return dist_logits, similarity
+            # return both forward and inverse similarity logits to allow correct labeling across processes
+            return dist_logits, (similarity, similarity_inv)
 
         elif stage == 'mutation':
             input['prot'] = input['prot_mut']
