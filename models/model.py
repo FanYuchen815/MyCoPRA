@@ -18,9 +18,17 @@ def load_esm(esm_type):
     from pathlib import Path
     # allow overriding via env var `ESM_LOCAL_WEIGHTS`
     local_weights = os.environ.get('ESM_LOCAL_WEIGHTS')
+    # If user specifies a local weights path via ESM_LOCAL_WEIGHTS, allow it
+    # unless it refers to a contact-regression variant (avoid using -contact-regression).
+    repo_root = Path(__file__).resolve().parents[1]
+    default_weights = str(repo_root / 'weights' / 'esm2_t33_650M_UR50D.pt')
     if local_weights is None:
-        repo_root = Path(__file__).resolve().parents[1]
-        local_weights = str(repo_root / 'weights' / 'esm2_t33_650M_UR50D.pt')
+        local_weights = default_weights
+    else:
+        # avoid accidental use of contact-regression weights
+        if 'contact' in Path(local_weights).name.lower():
+            print(f"Warning: ESM_LOCAL_WEIGHTS refers to '{local_weights}' which appears to be a contact-regression file; using default weights '{default_weights}' instead.")
+            local_weights = default_weights
 
     if esm_type == '650M':
         # Prepare local torch hub cache if local weights exist, to prevent esm.pretrained from downloading.
