@@ -1,9 +1,9 @@
-epochs: 60 # 在预训练保留权重的轮数基础上微调20轮，当前预训练保留的是第48轮
+epochs: 42 # 在预训练保留权重的轮数基础上微调20轮，当前预训练保留的是第48轮
 patience: 150
 output_dir: './outputs/wo_geo/PRA310'
 gpus: 1
   
-ckpt: null
+ckpt: /root/autodl-tmp/CoPRA/outputs/wo_GeometricAttention/log_fold_0/checkpoint/epoch=30-val_loss=1.143.ckpt
 
 run_name: 'SSDN_finetune_from_pretrain'
 wandb: False

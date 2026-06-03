@@ -3,7 +3,7 @@ patience: 150
 output_dir: './outputs/wo_seq_only_finetune/PRA310'
 gpus: 1
   
-ckpt: null
+ckpt: /root/autodl-tmp/CoPRA/outputs/wo_seq_only/log_fold_0/checkpoint/epoch=43-val_loss=1.139.ckpt
 
 run_name: 'SSDN_finetune_from_pretrain'
 wandb: False

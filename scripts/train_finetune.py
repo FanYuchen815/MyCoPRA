@@ -2,6 +2,7 @@ import argparse
 import yaml
 from pathlib import Path
 import pytorch_lightning as pl
+import utils.safe_checkpoint
 from pl_modules.model_module import ModelModule
 
 
