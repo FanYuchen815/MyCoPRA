@@ -1,0 +1,10 @@
+epochs: 59 # 在预训练保留权重的轮数基础上微调20轮，当前预训练保留的是第48轮
+patience: 150
+output_dir: './outputs/fix_itp_finetune/PRA310'
+gpus: 1
+  
+ckpt: /root/autodl-tmp/CoPRA/outputs/PRORNA_SSDN_pretrain_enhanced/log_fold_0/checkpoint/epoch=49-val_loss=1.241.ckpt
+
+run_name: 'SSDN_finetune_from_pretrain'
+wandb: False
+num_folds: 5

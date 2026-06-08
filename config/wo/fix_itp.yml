@@ -1,0 +1,23 @@
+output_dir: ./outputs/fix_itp
+run_name: fix_itp
+num_folds: 1
+epochs: 50
+patience: 50
+gpus: 1
+wandb: false
+ckpt: null
+ckpts: []
+precision: 16
+batch_size: 4
+accumulate_grad_batches: 16
+model_config: config/models/prorna_ssdn.yml
+data_config: config/datasets/PRI30k.yml
+
+# Causal pretraining flags (read by PretuneModule)
+causal_enabled: true
+causal_pretrain:
+  alignment_weight: 0.1
+  atomic_weight: 1.0
+  global_weight: 1.0
+  local_weight: 1.0
+save_every_n_epochs: 10
