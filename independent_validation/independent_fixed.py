@@ -43,6 +43,11 @@ def load_model(checkpoint_path, device="cpu"):
 
 
 def main():
+    import random
+    random.seed(42)
+    np.random.seed(42)
+    torch.manual_seed(42)
+    torch.cuda.manual_seed_all(42)
     parser = argparse.ArgumentParser()
     parser.add_argument("--data-root", type=str,
                         default="/root/autodl-tmp/CoPRA/datasets/PRA_single/PDBs")
@@ -173,7 +178,7 @@ def main():
     from data.transforms import get_transform
     transform_cfg = [
         {"type": "select_atom", "resolution": "backbone"},
-        {"type": "selected_region_with_distmap", "patch_size": 2048},
+        {"type": "selected_region_with_distmap", "patch_size": 512},
         {"type": "subtract_center_of_mass"},
     ]
     transform = get_transform(transform_cfg)
