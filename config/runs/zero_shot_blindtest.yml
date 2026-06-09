@@ -5,7 +5,7 @@ output_dir: './outputs/esm2rinalmo_650M/mCSM/blind_test'
 gpus:
   - 0
 ckpts: 
-  - './weights/CoPRA_fold3.ckpt'
+  - '/root/autodl-tmp/CoPRA/outputs/PRORNA_SSDN_pretrain_enhanced/log_fold_0/checkpoint/epoch=49-val_loss=1.241.ckpt'
 
 run_name: 'esm2rinalmo_mmCSM_patch256'
 wandb: False

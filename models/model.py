@@ -240,7 +240,7 @@ class ESM2RiNALMo(nn.Module):
             nn.init.normal_(self.prot_embedding)
             nn.init.normal_(self.rna_embedding)
             nn.init.normal_(self.complex_embedding)
-        if pair_dim != self.complex_dim:
+        if True:  # always create z_proj for ddG
             self.z_proj = nn.Linear(pair_dim, self.complex_dim)
         self.pred_head = nn.Sequential(
             nn.Linear(self.complex_dim, self.feat_size), nn.ReLU(),
@@ -610,7 +610,7 @@ class ESM2RiNALMo(nn.Module):
                 output_forward, z_forward, attn = self.c_former(out_forward, z_forward, key_padding_mask=key_padding_mask, need_attn_weights=False)
                 complex_embedding = output_forward + self.z_proj(z_forward).sum(-2) * 0.001
                 # Default to be token embeding
-                complex_embedding = complex_embedding[:, 0, :].squeeze(1)
+                complex_embedding = complex_embedding[:, 0] if complex_embedding.dim() == 3 else complex_embedding
                 
                 output_forward = self.pred_head(complex_embedding)
                 output_forward = output_forward.squeeze(1)
@@ -618,7 +618,7 @@ class ESM2RiNALMo(nn.Module):
                 output_inv, z_inv, attn = self.c_former(out_inv, z_inv, key_padding_mask=key_padding_mask, need_attn_weights=False)
                 complex_embedding_inv = output_inv + self.z_proj(z_inv).sum(-2) * 0.001
                 # Default to be token embeding
-                complex_embedding_inv = complex_embedding_inv[:, 0, :].squeeze(1)
+                complex_embedding_inv = complex_embedding_inv[:, 0] if complex_embedding_inv.dim() == 3 else complex_embedding_inv
                 
                 output_inv = self.pred_head(complex_embedding_inv)
                 output_inv = output_inv.squeeze(1)
@@ -629,9 +629,9 @@ class ESM2RiNALMo(nn.Module):
                 output_mut, z_mut, attn = self.c_former(out_mut, z_mut, key_padding_mask=key_padding_mask, need_attn_weights=False)
                 wild_embedding = output_wild + self.z_proj(z_wild).sum(-2) * 0.001
                 # Default to be token embeding
-                wild_embedding = wild_embedding[:, 0, :].squeeze(1)
+                wild_embedding = wild_embedding[:, 0] if wild_embedding.dim() == 3 else wild_embedding
                 mut_embedding = output_mut + self.z_proj(z_mut).sum(-2) * 0.001
-                mut_embedding = mut_embedding[:, 0, :].squeeze(1)
+                mut_embedding = mut_embedding[:, 0] if mut_embedding.dim() == 3 else mut_embedding
                 
                 
                 forward_embedding = wild_embedding - mut_embedding
